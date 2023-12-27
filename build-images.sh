@@ -13,13 +13,13 @@ images=()
 # The image will be pushed to GitHub container registry
 repobase="${REPOBASE:-ghcr.io/compgeniuses}"
 # Configure the image name
-reponame="paperlessngx-a"
+reponame="paperlessngx"
 
 # Create a new empty container image
 container=$(buildah from scratch)
 
 # Reuse existing nodebuilder-kickstart container, to speed up builds
-if ! buildah containers --format "{{.ContainerName}}" | grep -q nodebuilder-ns8-paperlessngx-a; then
+if ! buildah containers --format "{{.ContainerName}}" | grep -q nodebuilder-ns8-paperlessngx; then
     echo "Pulling NodeJS runtime..."
     buildah from --name nodebuilder-ns8-paperlessngx -v "${PWD}:/usr/src:Z" docker.io/library/node:lts
 fi
@@ -28,7 +28,7 @@ echo "Build static UI files with node..."
 buildah run \
     --workingdir=/usr/src/ui \
     --env="NODE_OPTIONS=--openssl-legacy-provider" \
-    nodebuilder-ns8-paperlessngx-a \
+    nodebuilder-ns8-paperlessngx \
     sh -c "yarn install && yarn build"
 
 # Add imageroot directory to the container image
@@ -66,6 +66,6 @@ if [[ -n "${CI}" ]]; then
 else
     # Just print info for manual push
     printf "Publish the images with:\n\n"
-    for image in "${images[@],,}"; do printf "  buildah push %s docker://%s:%s\n" "${image}" "${image}" "${IMAGETAG:-a}" ; done
+    for image in "${images[@],,}"; do printf "  buildah push %s docker://%s:%s\n" "${image}" "${image}" "${IMAGETAG:-latest}" ; done
     printf "\n"
 fi
