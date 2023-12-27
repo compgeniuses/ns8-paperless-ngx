@@ -10,9 +10,8 @@
 
 [Unit]
 Description=Podman paperlessngx-pod.service
-Requires=paperless-redis.service paperless-pgsql.service ns8-paperless-ngx.service paperless-gotenberg.service paperless-tika.service
-Before=paperless-redis.service paperless-pgsql.service ns8-paperless-ngx.service paperless-gotenberg.service paperless-tika.service
-
+Requires=paperless-redis.service paperless-pgsql.service ns8-paperless-ngx.service
+Before=paperless-redis.service paperless-pgsql.service ns8-paperless-ngx.service
 [Service]
 Environment=PODMAN_SYSTEMD_UNIT=%n
 EnvironmentFile=-%S/state/environment
@@ -22,7 +21,7 @@ ExecStartPre=/bin/rm -f %t/paperlessngx-pod.pid %t/ns8-paperless-ngx.pod-id
 ExecStartPre=/usr/bin/podman pod create --infra-conmon-pidfile %t/paperlessngx-pod.pid \
     --pod-id-file %t/ns8-paperless-ngx.pod-id \
     --name paperlessngx \
-    --publish 127.0.0.1:${PAPERLESS_TCP_PORT}:8000 \
+    --publish 127.0.0.1:${TCP_PORT}:8000 \
     --replace
 ExecStart=/usr/bin/podman pod start --pod-id-file %t/ns8-paperless-ngx.pod-id
 ExecStop=/usr/bin/podman pod stop --ignore --pod-id-file %t/ns8-paperless-ngx.pod-id -t 10

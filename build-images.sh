@@ -13,13 +13,13 @@ images=()
 # The image will be pushed to GitHub container registry
 repobase="${REPOBASE:-ghcr.io/compgeniuses}"
 # Configure the image name
-reponame="paperlessngx"
+reponame="paperlessngx-a"
 
 # Create a new empty container image
 container=$(buildah from scratch)
 
 # Reuse existing nodebuilder-kickstart container, to speed up builds
-if ! buildah containers --format "{{.ContainerName}}" | grep -q nodebuilder-ns8-paperlessngx; then
+if ! buildah containers --format "{{.ContainerName}}" | grep -q nodebuilder-ns8-paperlessngx-a; then
     echo "Pulling NodeJS runtime..."
     buildah from --name nodebuilder-ns8-paperlessngx -v "${PWD}:/usr/src:Z" docker.io/library/node:lts
 fi
@@ -28,7 +28,7 @@ echo "Build static UI files with node..."
 buildah run \
     --workingdir=/usr/src/ui \
     --env="NODE_OPTIONS=--openssl-legacy-provider" \
-    nodebuilder-ns8-paperlessngx \
+    nodebuilder-ns8-paperlessngx-a \
     sh -c "yarn install && yarn build"
 
 # Add imageroot directory to the container image
@@ -39,8 +39,7 @@ buildah config --entrypoint=/ \
     --label="org.nethserver.authorizations=traefik@node:routeadm" \
     --label="org.nethserver.tcp-ports-demand=1" \
     --label="org.nethserver.rootfull=0" \
-    --label="org.nethserver.images=docker.io/library/redis:7 docker.io/library/postgres:15 docker.io/paperlessngx/paperless-ngx:2.1.3 ghcr.io/paperless-ngx/tika:latest docker.io/gotenberg/gotenberg:7.10" \
-    --label="org.nethserver.tcp-ports-demand=3" \
+    --label="org.nethserver.images=docker.io/library/redis:7 docker.io/library/postgres:15 docker.io/paperlessngx/paperless-ngx:2.1.3" \
     "${container}"
 # Commit the image
 buildah commit "${container}" "${repobase}/${reponame}"
@@ -67,6 +66,6 @@ if [[ -n "${CI}" ]]; then
 else
     # Just print info for manual push
     printf "Publish the images with:\n\n"
-    for image in "${images[@],,}"; do printf "  buildah push %s docker://%s:%s\n" "${image}" "${image}" "${IMAGETAG:-latest}" ; done
+    for image in "${images[@],,}"; do printf "  buildah push %s docker://%s:%s\n" "${image}" "${image}" "${IMAGETAG:-a}" ; done
     printf "\n"
 fi

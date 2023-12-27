@@ -10,7 +10,7 @@
 [Unit]
 Description=Podman ns8-paperless-ngx server
 BindsTo=paperlessngx-pod.service
-After=paperless-redis.service paperless-pgsql.service paperless-tika.service paperless-gotenberg.service 
+After=paperless-redis.service paperless-pgsql.service
 [Service]
 Environment=PODMAN_SYSTEMD_UNIT=%n
 EnvironmentFile=%S/state/environment
