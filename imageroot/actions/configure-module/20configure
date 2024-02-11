@@ -26,7 +26,9 @@ PAPERLESS_FILENAME_FORMAT = data.get("PAPERLESS_FILENAME_FORMAT","{created_year}
 host = data.get("host", "")
 PAPERLESS_URL = "https://"+host
 
-
+# SSO Functionalities Implemenation
+PAPERLESS_APPS = data.get("PAPERLESS_APPS","") #Comma Separated list of django apps to be included in django's INSTALLED_APPS; Defaults to None
+agent.set_env("PAPERLESS_APPS", PAPERLESS_APPS)
 # Db Config
 
 POSTGRES_DB = data.get("POSTGRES_DB","paperless")
