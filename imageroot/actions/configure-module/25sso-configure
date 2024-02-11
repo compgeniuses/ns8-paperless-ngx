@@ -142,7 +142,7 @@ def get_sso_providers(*provider_names):
         return [paperless_sso_providers[name] for name in provider_names if name in paperless_sso_providers]
 
 # Example usage:
-default_apps = ['openid_connect', 'openid_connect', 'authentiq', 'github', 'gitlab', 'lemonldap', 'nextcloud', 'google']  # Example: Selected providers
+default_apps = ['openid_connect', 'auth0', 'authentiq', 'github', 'gitlab', 'lemonldap', 'nextcloud', 'google']  # Example: Selected providers
 
 # Fetch PAPERLESS_APPS from data
 PAPERLESS_APPS = data.get("PAPERLESS_APPS")
