@@ -134,7 +134,7 @@ paperless_sso_providers = {
 }
 
 
-# Function to retrieve SSO provider URLs
+## Function to retrieve SSO provider URLs
 def get_sso_providers(*provider_names):
     if 'all' in provider_names:
         return list(paperless_sso_providers.values())
@@ -143,15 +143,22 @@ def get_sso_providers(*provider_names):
 
 # Example usage:
 default_apps = ['openid_connect', 'openid_connect', 'authentiq', 'github', 'gitlab', 'lemonldap', 'nextcloud', 'google']  # Example: Selected providers
-sso_provider = get_sso_providers(*default_apps)
 
+# Fetch PAPERLESS_APPS from data
+PAPERLESS_APPS = data.get("PAPERLESS_APPS")
 
-print("Providers in use:", sso_provider)
+# If PAPERLESS_APPS is not defined, use default_apps
+if PAPERLESS_APPS is None:
+    PAPERLESS_APPS = ','.join(default_apps)
+else:
+    # Check if only one provider is specified
+    if PAPERLESS_APPS in paperless_sso_providers:
+        PAPERLESS_APPS = paperless_sso_providers[PAPERLESS_APPS]
+    # If 'all' is specified, use all providers
+    elif PAPERLESS_APPS == "all":
+        PAPERLESS_APPS = ','.join(paperless_sso_providers.keys())
 
-
-
-# SSO Functionalities Implemenation
-PAPERLESS_APPS = data.get("PAPERLESS_APPS","sso_provider") #Comma Separated list of django apps to be included in django"s INSTALLED_APPS; Defaults to None
+# Set environment variable
 agent.set_env("PAPERLESS_APPS", PAPERLESS_APPS)
 
 
