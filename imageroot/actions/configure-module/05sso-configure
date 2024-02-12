@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 
 #
@@ -10,12 +11,8 @@ import sys
 # agent is a NethServer library which provides function to communicate with the agent
 import agent
 
-#data = json.load(sys.stdin)
-try:
-    data = json.load(sys.stdin)
-except json.JSONDecodeError as e:
-    print("Error decoding JSON:", e)
-    sys.exit(1)
+data = json.load(sys.stdin)
+
 
 # Define all the SSO providers
 paperless_sso_providers = {
@@ -149,11 +146,18 @@ def get_sso_providers(*provider_names):
 default_apps = ['openid_connect', 'auth0', 'authentiq', 'github', 'gitlab', 'lemonldap', 'nextcloud', 'google']  # Example: Selected providers
 
 # Fetch PAPERLESS_APPS from data
-PAPERLESS_APPS = data.get("PAPERLESS_APPS")
+PAPERLESS_APPS = data.get("PAPERLESS_APPS", "")
+
+# If PAPERLESS_APPS is not defined, use default_apps
+provider_values = []
+
 
 # If PAPERLESS_APPS is not defined, use default_apps
 if PAPERLESS_APPS is None:
-    PAPERLESS_APPS = ','.join(default_apps)
+    # Iterate over each default app and fetch its value from paperless_sso_providers
+    for app in default_apps:
+        provider_values.append(paperless_sso_providers.get(app, ''))
+    PAPERLESS_APPS = ','.join(provider_values)
 else:
     # Check if only one provider is specified
     if PAPERLESS_APPS in paperless_sso_providers:
