@@ -9,9 +9,22 @@ import json
 import sys
 # agent is a NethServer library which provides function to communicate with the agent
 import agent
-
+rdb = agent.redis_connect(use_replica=True)
+smtp_settings = agent.get_smarthost_settings(rdb)
 data = json.load(sys.stdin)
-
+# PAPERLESS_EMAIL_HOST=<str>
+# Defaults to 'localhost'.
+# PAPERLESS_EMAIL_PORT=<int>
+# Defaults to port 25.
+# PAPERLESS_EMAIL_HOST_USER=<str>
+# Defaults to ''.
+# PAPERLESS_EMAIL_FROM=<str>
+# Defaults to PAPERLESS_EMAIL_HOST_USER if not set.
+# PAPERLESS_EMAIL_HOST_PASSWORD=<str>
+# Defaults to ''.
+# PAPERLESS_EMAIL_USE_TLS=<bool>
+# Defaults to false.
+# PAPERLESS_EMAIL_USE_SSL=<bool>
 # Setup default values
 paperless_name = data.get("paperless_name","paperless-ngx")
 PAPERLESS_ADMIN_USER = data.get("PAPERLESS_ADMIN_USER","paperlessadmin")
@@ -21,7 +34,14 @@ PAPERLESS_TIME_ZONE = data.get("PAPERLESS_TIME_ZONE","America/Los_Angeles")
 PAPERLESS_OCR_LANGUAGE = data.get("PAPERLESS_OCR_LANGUAGE","eng")
 PAPERLESS_COOKIE_PREFIX = data.get("PAPERLESS_COOKIE_PREFIX","paperlessngx")
 PAPERLESS_FILENAME_FORMAT = data.get("PAPERLESS_FILENAME_FORMAT","{created_year}/{correspondent}/{doc_pk}-{title}")
-
+# Email Settings
+PAPERLESS_EMAIL_HOST = smtp_settings['host']
+PAPERLESS_EMAIL_PORT = smtp_settings['port']
+PAPERLESS_EMAIL_HOST_USER = smtp_settings['username']
+PAPERLESS_EMAIL_FROM = smtp_settings['username']
+PAPERLESS_EMAIL_HOST_PASSWORD = smtp_settings['password']
+PAPERLESS_EMAIL_USE_TLS = 'true' if smtp_settings['tls_verify'] else 'false'
+PAPERLESS_EMAIL_USE_SSL = 'false' if smtp_settings['tls_verify'] else 'true'
 # PAperless CSRF settings
 host = data.get("host", "")
 PAPERLESS_URL = "https://"+host
@@ -39,6 +59,14 @@ paperless_config = {
     "PAPERLESS_TIKA_ENABLED": "1",
     "PAPERLESS_TIKA_GOTENBERG_ENDPOINT": "http://127.0.0.1:3000",
     "PAPERLESS_TIKA_ENDPOINT": "http://127.0.0.1:9998",
+    "PAPERLESS_EMAIL_HOST": PAPERLESS_EMAIL_HOST,
+    "PAPERLESS_EMAIL_PORT": PAPERLESS_EMAIL_PORT,
+    "PAPERLESS_EMAIL_HOST_USER": PAPERLESS_EMAIL_HOST_USER,
+    "PAPERLESS_EMAIL_FROM": PAPERLESS_EMAIL_FROM,
+    "PAPERLESS_EMAIL_HOST_PASSWORD": PAPERLESS_EMAIL_HOST_PASSWORD,
+    "PAPERLESS_EMAIL_USE_TLS": PAPERLESS_EMAIL_USE_TLS,
+    "PAPERLESS_EMAIL_USE_SSL": PAPERLESS_EMAIL_USE_SSL,
+
 }
 
 agent.write_envfile('paperless-ngx.env', paperless_config)
