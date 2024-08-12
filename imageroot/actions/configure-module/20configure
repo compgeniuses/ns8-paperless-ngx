@@ -26,47 +26,27 @@ PAPERLESS_FILENAME_FORMAT = data.get("PAPERLESS_FILENAME_FORMAT","{created_year}
 host = data.get("host", "")
 PAPERLESS_URL = "https://"+host
 
-
-# Db Config
-
-POSTGRES_DB = data.get("POSTGRES_DB","paperless")
-POSTGRES_USER = data.get("POSTGRES_USER","paperless")
-POSTGRES_PASSWORD = data.get("POSTGRES_PASSWORD","p@perle$$")
-
-db_config = {
-    
-    "POSTGRES_ROOT_HOST": "localhost",
-    "POSTGRES_DATABASE": POSTGRES_DB,
-    "POSTGRES_USER": POSTGRES_USER,
-    "POSTGRES_PASSWORD": POSTGRES_PASSWORD,
-    
+paperless_config = {
+    "PAPERLESS_NGX_NAME": paperless_name,
+    "PAPERLESS_TIME_ZONE": PAPERLESS_TIME_ZONE,
+    "PAPERLESS_OCR_LANGUAGE": PAPERLESS_OCR_LANGUAGE,
+    "PAPERLESS_COOKIE_PREFIX": PAPERLESS_COOKIE_PREFIX,
+    "PAPERLESS_ADMIN_USER": PAPERLESS_ADMIN_USER,
+    "PAPERLESS_ADMIN_PASSWORD": PAPERLESS_ADMIN_PASSWORD,
+    "PAPERLESS_ADMIN_MAIL": PAPERLESS_ADMIN_MAIL,
+    "PAPERLESS_FILENAME_FORMAT": PAPERLESS_FILENAME_FORMAT,
+    "PAPERLESS_URL": PAPERLESS_URL,
+    "PAPERLESS_TIKA_ENABLED": "1",
+    "PAPERLESS_TIKA_GOTENBERG_ENDPOINT": "http://127.0.0.1:3000",
+    "PAPERLESS_TIKA_ENDPOINT": "http://127.0.0.1:9998",
 }
-agent.write_envfile('database.env', db_config)
 
-# Talk with agent using file descriptor.
+agent.write_envfile('paperless-ngx.env', paperless_config)
 
-# Setup configuration from user input.
-agent.set_env("PAPERLESS_NGX_NAME", paperless_name)
-agent.set_env("PAPERLESS_TIME_ZONE", PAPERLESS_TIME_ZONE)
-agent.set_env("PAPERLESS_OCR_LANGUAGE", PAPERLESS_OCR_LANGUAGE)
-agent.set_env("PAPERLESS_COOKIE_PREFIX", PAPERLESS_COOKIE_PREFIX)
-agent.set_env("PAPERLESS_ADMIN_USER", PAPERLESS_ADMIN_USER)
-agent.set_env("PAPERLESS_ADMIN_PASSWORD", PAPERLESS_ADMIN_PASSWORD)
-agent.set_env("PAPERLESS_ADMIN_MAIL", PAPERLESS_ADMIN_MAIL)
-agent.set_env("PAPERLESS_FILENAME_FORMAT", PAPERLESS_FILENAME_FORMAT)
-
-#paperless CSRF settings
-agent.set_env("PAPERLESS_URL", PAPERLESS_URL)
-
-# Setup tika and gotenberg configuration from user input.
-agent.set_env("PAPERLESS_TIKA_ENABLED", "1")
-agent.set_env("PAPERLESS_TIKA_GOTENBERG_ENDPOINT", "http://127.0.0.1:3000")
-agent.set_env("PAPERLESS_TIKA_ENDPOINT", "http://127.0.0.1:9998")
 
 # Setup PHP with safe defaults
 agent.set_env("PHP_ENABLE_OPCACHE", "1")
 agent.set_env("PHP_MEMORY_LIMIT", "512M")
-# Configure Traefik to route "/paperlessngx" path requests to the paperlessngx service
 
 
 # Make sure everything is saved inside the environment file
