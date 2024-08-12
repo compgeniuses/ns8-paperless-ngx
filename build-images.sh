@@ -41,7 +41,7 @@ buildah config --entrypoint=/ \
     --label="org.nethserver.authorizations=traefik@node:routeadm" \
     --label="org.nethserver.tcp-ports-demand=1" \
     --label="org.nethserver.rootfull=0" \
-    --label="org.nethserver.images=docker.io/library/redis:7.2.3-bookworm docker.io/library/postgres:15.5-bookworm docker.io/paperlessngx/paperless-ngx:${paperless_version} ghcr.io/apache/tika:${tika_version} docker.io/gotenberg/gotenberg:${gotenberg_version}" \
+    --label="org.nethserver.images=docker.io/library/redis:7.2.3-bookworm docker.io/library/postgres:15.5-bookworm docker.io/paperlessngx/paperless-ngx:${paperless_version} docker.io/apache/tika:${tika_version} docker.io/gotenberg/gotenberg:${gotenberg_version}" \
     --label="org.nethserver.tcp-ports-demand=1" \
     "${container}"
 # Commit the image
