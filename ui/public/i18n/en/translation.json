@@ -33,7 +33,8 @@
     "enabled": "Enabled",
     "http_to_https": "http2https",
     "save": "Save",
-    "test_field": "Test field"
+    "test_field": "Test field",
+    "instance_configuration": "Configuring {instance} instance"
   },
   "about": {
     "title": "About"
