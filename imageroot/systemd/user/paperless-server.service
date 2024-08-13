@@ -19,6 +19,7 @@ WorkingDirectory=%S/state
 Restart=always
 ExecStartPre=/bin/rm -f %t/ns8-paperless-ngx.pid %t/ns8-paperless-ngx.ctr-id
 ExecStartPre=/usr/local/bin/runagent discover-smarthost
+ExecStartPre=/usr/local/bin/runagent discover-database
 ExecStart=/usr/bin/podman run \
     --detach \
     --conmon-pidfile=%t/ns8-paperless-ngx.pid \
