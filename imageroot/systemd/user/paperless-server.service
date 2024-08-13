@@ -19,6 +19,7 @@ WorkingDirectory=%S/state
 Restart=always
 ExecStartPre=/bin/rm -f %t/ns8-paperless-ngx.pid %t/ns8-paperless-ngx.ctr-id
 ExecStartPre=/usr/local/bin/runagent discover-smarthost
+ExecStartPre=/usr/local/bin/runagent discover-database
 ExecStart=/usr/bin/podman run \
     --detach \
     --conmon-pidfile=%t/ns8-paperless-ngx.pid \
@@ -27,12 +28,9 @@ ExecStart=/usr/bin/podman run \
     --cgroups=no-conmon \
     --replace --name=%N \
     --env-file=smarthost.env \
-    --env=PAPERLESS_* \
-    --env=PAPERLESS_DBENGINE=postgresql \
-    --env=PAPERLESS_DBHOST=127.0.0.1 \
-    --env=PAPERLESS_DBNAME=${POSTGRES_DATABASE} \
-    --env=PAPERLESS_DBUSER=${POSTGRES_USER} \
-    --env=PAPERLESS_DBPASS=${POSTGRES_PASSWORD} \
+    --env-file=%S/state/paperless-db.env \
+    --env-file=%S/state/secret_key.env \
+    --env-file=%S/state/paperless-ngx.env \
     --volume=paperlessngx-data:/usr/src/paperless/data \
     --volume=paperlessngx-media:/usr/src/paperless/media \
     --volume=paperlessngx-export:/usr/src/paperless/export \

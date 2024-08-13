@@ -17,9 +17,36 @@ data = json.load(sys.stdin)
 random_key = secrets.token_hex(16)
 PAPERLESS_SECRET_KEY = data.get("PAPERLESS_SECRET_KEY",random_key)
 
-# Talk with agent using file descriptor.
+# database Credentials
+def generate_random_password():
+    return secrets.token_urlsafe(16)
 
-agent.set_env("PAPERLESS_SECRET_KEY", PAPERLESS_SECRET_KEY)
+# Db Config
+
+POSTGRES_DB = data.get("POSTGRES_DB","paperless")
+POSTGRES_USER = data.get("POSTGRES_USER","paperless")
+POSTGRES_PASSWORD = generate_random_password()
+
+db_config = {
+    "POSTGRES_DATABASE": POSTGRES_DB,
+    "POSTGRES_USER": POSTGRES_USER,
+    "POSTGRES_PASSWORD": POSTGRES_PASSWORD,
+}
+agent.write_envfile('database.env', db_config)
+
+paperless_config = {
+    "PAPERLESS_DBENGINE": "postgresql",
+    "PAPERLESS_DBHOST": "paperless-pgsql",
+    "PAPERLESS_DBNAME": POSTGRES_DB,
+    "PAPERLESS_DBUSER": POSTGRES_USER,
+    "PAPERLESS_DBPASS": POSTGRES_PASSWORD,
+}
+agent.write_envfile('paperless-db.env', paperless_config)
+
+secret_key = {
+    "PAPERLESS_SECRET_KEY": PAPERLESS_SECRET_KEY,
+}
+agent.write_envfile('secret_key.env', secret_key)
 
 # Make sure everything is saved inside the environment file
 # just before starting systemd unit
