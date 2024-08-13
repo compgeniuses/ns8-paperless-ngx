@@ -10,7 +10,7 @@ import agent
 import os
 
 # Connect the local Redis replica. This is necessary to consistently start
-database = "database.env"
+database = "paperless-db.env"
 # check if it exists
 # set the default values
 
@@ -26,6 +26,8 @@ if not os.path.exists(database):
         "PAPERLESS_DBPASS": POSTGRES_PASSWORD,
     }
     agent.write_envfile("paperless-db.env", paperless_config)
+
+if not os.path.exists("secret_key.env"):
     PAPERLESS_SECRET_KEY = os.getenv("PAPERLESS_SECRET_KEY", "")
     secret_key = {
         "PAPERLESS_SECRET_KEY": PAPERLESS_SECRET_KEY,
