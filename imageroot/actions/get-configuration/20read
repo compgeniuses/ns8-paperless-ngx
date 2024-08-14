@@ -12,6 +12,22 @@ import agent
 
 config = {}
 
+if os.path.exists("paperless-ngx.env"):
+    config["PAPERLESS_TIME_ZONE"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_TIME_ZONE"]
+    config["PAPERLESS_OCR_LANGUAGE"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_OCR_LANGUAGE"]
+    config["PAPERLESS_ADMIN_USER"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_ADMIN_USER"]
+    config["PAPERLESS_ADMIN_PASSWORD"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_ADMIN_PASSWORD"]
+    config["PAPERLESS_ADMIN_MAIL"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_ADMIN_MAIL"]
+    config["PAPERLESS_COOKIE_PREFIX"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_COOKIE_PREFIX"]
+    config["PAPERLESS_FILENAME_FORMAT"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_FILENAME_FORMAT"]
+else:
+    config["PAPERLESS_TIME_ZONE"] = ""
+    config["PAPERLESS_OCR_LANGUAGE"] = ""
+    config["PAPERLESS_ADMIN_USER"] = ""
+    config["PAPERLESS_ADMIN_PASSWORD"] = ""
+    config["PAPERLESS_ADMIN_MAIL"] = ""
+    config["PAPERLESS_COOKIE_PREFIX"] = ""
+    config["PAPERLESS_FILENAME_FORMAT"] = ""
 # Read current configuration from Redis
 config["host"] = os.getenv("TRAEFIK_HOST","")
 config["http2https"] = os.getenv("TRAEFIK_HTTP2HTTPS") == "True"
