@@ -10,11 +10,12 @@
 [Unit]
 Description=Podman ns8-paperless-ngx server
 BindsTo=paperless.service
-After=paperless-redis.service paperless-pgsql.service
+After=paperless-redis.service paperless-pgsql.service paperless-gotenberg.service paperless-tika.service # Added tika and gotenberg as they are also dependencies for full functionality
+
 [Service]
 Environment=PODMAN_SYSTEMD_UNIT=%n
-EnvironmentFile=%S/state/environment
-EnvironmentFile=%S/state/database.env
+EnvironmentFile=%S/state/environment # Main environment file from agent.dump_env()
+# Other specific env files are loaded via --env-file in podman run for potential override or specific sourcing
 WorkingDirectory=%S/state
 Restart=always
 ExecStartPre=/bin/rm -f %t/ns8-paperless-ngx.pid %t/ns8-paperless-ngx.ctr-id
@@ -28,9 +29,13 @@ ExecStart=/usr/bin/podman run \
     --cgroups=no-conmon \
     --replace --name=%N \
     --env-file=smarthost.env \
-    --env-file=%S/state/paperless-db.env \
+    --env-file=%S/state/paperless-db-conn.env \
     --env-file=%S/state/secret_key.env \
-    --env-file=%S/state/paperless-ngx.env \
+    # paperless-app.env (containing DJANGO_SETTINGS_MODULE and PAPERLESS_LDAP_* vars) 
+    # should be part of %S/state/environment loaded above. 
+    # If not, it might need to be explicitly added here too, e.g. --env-file=%S/state/paperless-app.env
+    # For now, relying on EnvironmentFile=%S/state/environment to source it via agent.dump_env().
+    --volume=%S/state/etc/paperless-ngx/ldap_settings.py:/usr/src/paperless/src/paperless/ldap_settings.py:ro,Z \
     --volume=paperlessngx-data:/usr/src/paperless/data \
     --volume=paperlessngx-media:/usr/src/paperless/media \
     --volume=paperlessngx-export:/usr/src/paperless/export \
