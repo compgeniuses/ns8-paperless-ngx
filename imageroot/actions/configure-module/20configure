@@ -7,131 +7,149 @@
 import os
 import json
 import sys
-# agent is a NethServer library which provides function to communicate with the agent
-import agent # Make sure this import is present
+import agent 
 import secrets
 
 data = json.load(sys.stdin)
 
-# Setup default values
-random_key = secrets.token_hex(16)
-PAPERLESS_SECRET_KEY = data.get("PAPERLESS_SECRET_KEY", random_key)
-
-# --- Database Config (existing) ---
+# --- Database Server Config (for PostgreSQL service itself) ---
+# This remains as it was, for the PostgreSQL container.
 def generate_random_password():
     return secrets.token_urlsafe(16)
 
 POSTGRES_DB = data.get("POSTGRES_DB", "paperless")
 POSTGRES_USER = data.get("POSTGRES_USER", "paperless")
-POSTGRES_PASSWORD = generate_random_password()
+# Generate password only if not provided (e.g. for restore)
+POSTGRES_PASSWORD = data.get("POSTGRES_PASSWORD", generate_random_password())
 
-db_config = {
+
+db_server_config = {
     "POSTGRES_DATABASE": POSTGRES_DB,
     "POSTGRES_USER": POSTGRES_USER,
     "POSTGRES_PASSWORD": POSTGRES_PASSWORD,
 }
-agent.write_envfile('database.env', db_config)
+agent.write_envfile('database.env', db_server_config)
 
-# --- Paperless-specific DB connection settings (existing) ---
-# These tell Paperless how to connect to the DB specified above.
+# --- Paperless NGX's Connection Settings to its Database ---
+# This tells Paperless how to find the database defined above.
 paperless_db_conn_config = {
     "PAPERLESS_DBENGINE": "postgresql",
-    "PAPERLESS_DBHOST": "paperless-pgsql", # Service name for the PostgreSQL container
+    "PAPERLESS_DBHOST": data.get("PAPERLESS_DBHOST", "paperless-pgsql"), # Service name of the PGSQL container
     "PAPERLESS_DBNAME": POSTGRES_DB,
     "PAPERLESS_DBUSER": POSTGRES_USER,
-    "PAPERLESS_DBPASS": POSTGRES_PASSWORD,
+    "PAPERLESS_DBPASS": POSTGRES_PASSWORD, # Use the same password
 }
-agent.write_envfile('paperless-db-conn.env', paperless_db_conn_config) # Changed file name for clarity
+agent.write_envfile('paperless-db-conn.env', paperless_db_conn_config)
 
-# --- Secret Key Config (existing) ---
-secret_key_config = { # Renamed dict for clarity
+# --- Paperless NGX Secret Key ---
+PAPERLESS_SECRET_KEY = data.get("PAPERLESS_SECRET_KEY", secrets.token_hex(32)) # Increased length
+secret_key_config = {
     "PAPERLESS_SECRET_KEY": PAPERLESS_SECRET_KEY,
 }
 agent.write_envfile('secret_key.env', secret_key_config)
 
 
-# --- BEGIN LDAP Configuration ---
-ldap_config_keys = [
-    "PAPERLESS_LDAP_SERVER_URI",
-    "PAPERLESS_LDAP_START_TLS", # true/false
-    "PAPERLESS_LDAP_TLS_VERSION", # e.g. TLSv1.2
-    "PAPERLESS_LDAP_BIND_DN",
-    "PAPERLESS_LDAP_BIND_PASSWORD",
-    "PAPERLESS_LDAP_USER_BASE_DN",
-    "PAPERLESS_LDAP_USER_OBJECT_CLASS",
-    "PAPERLESS_LDAP_USER_LOOKUP_FIELD", # default 'username'
-    "PAPERLESS_LDAP_USERNAME_ATTR", # default 'uid' or 'sAMAccountName'
-    "PAPERLESS_LDAP_FIRSTNAME_ATTR", # default 'givenName'
-    "PAPERLESS_LDAP_LASTNAME_ATTR", # default 'sn'
-    "PAPERLESS_LDAP_EMAIL_ATTR", # default 'mail'
-    "PAPERLESS_LDAP_USER_UID_FORMAT", # e.g. "uid={},ou=people,dc=example,dc=com"
-    "PAPERLESS_LDAP_REQUIRE_USER_GROUP", # DN of a group
-    "PAPERLESS_LDAP_ADMIN_GROUP_DN", # DN of an admin group
-    "PAPERLESS_LDAP_LLDAP_FIX" # true/false
-]
+# --- BEGINNING OF STANDARD PAPERLESS NGX APPLICATION SETTINGS ---
+paperless_base_config = {} # Changed from paperless_app_env_config to paperless_base_config as per step 3
 
-ldap_config = {}
-# Get PAPERLESS_LDAP_ENABLED specifically, default to "false" string
-# Nethserver UI will pass "true" or "false" as strings for boolean-like flags
+# Basic app settings from user's snippet
+paperless_base_config["PAPERLESS_NGX_NAME"] = data.get("paperless_name", "paperless-ngx") # Assuming key "paperless_name" from data
+paperless_base_config["PAPERLESS_ADMIN_USER"] = data.get("PAPERLESS_ADMIN_USER", "paperlessadmin")
+paperless_base_config["PAPERLESS_ADMIN_PASSWORD"] = data.get("PAPERLESS_ADMIN_PASSWORD", "P@perle5$") # Consider using agent.set_secret
+paperless_base_config["PAPERLESS_ADMIN_MAIL"] = data.get("PAPERLESS_ADMIN_MAIL", "")
+paperless_base_config["PAPERLESS_TIME_ZONE"] = data.get("PAPERLESS_TIME_ZONE", "America/Los_Angeles")
+paperless_base_config["PAPERLESS_OCR_LANGUAGE"] = data.get("PAPERLESS_OCR_LANGUAGE", "eng")
+paperless_base_config["PAPERLESS_COOKIE_PREFIX"] = data.get("PAPERLESS_COOKIE_PREFIX", "paperlessngx")
+paperless_base_config["PAPERLESS_FILENAME_FORMAT"] = data.get("PAPERLESS_FILENAME_FORMAT", "{created_year}/{correspondent}/{doc_pk}-{title}")
+
+# Email Settings from user's snippet
+# Assumption: smtp_settings is populated from data or a discovery mechanism earlier if needed.
+# For now, directly using data.get for each smtp related field, or using a default dict.
+smtp_settings = data.get("smtp_settings", {
+    "host": "", "port": "587", "username": "", "password": "", "tls_verify": "true" # Default structure
+})
+
+paperless_base_config["PAPERLESS_EMAIL_HOST"] = smtp_settings.get('host', "")
+paperless_base_config["PAPERLESS_EMAIL_PORT"] = str(smtp_settings.get('port', "587")) # Ensure string
+paperless_base_config["PAPERLESS_EMAIL_HOST_USER"] = smtp_settings.get('username', "")
+paperless_base_config["PAPERLESS_EMAIL_FROM"] = smtp_settings.get('username', "") # Often same as user
+paperless_base_config["PAPERLESS_EMAIL_HOST_PASSWORD"] = smtp_settings.get('password', "") # Consider agent.set_secret
+# Ensure boolean values are "true" or "false" strings for env vars
+email_use_tls_str = smtp_settings.get('tls_verify', "true")
+if isinstance(email_use_tls_str, bool): # convert if it was Python bool
+    email_use_tls_str = "true" if email_use_tls_str else "false"
+elif isinstance(email_use_tls_str, str): # ensure lowercase
+    email_use_tls_str = email_use_tls_str.lower()
+
+paperless_base_config["PAPERLESS_EMAIL_USE_TLS"] = "true" if email_use_tls_str == "true" else "false"
+# Typically, USE_SSL is false if USE_TLS is true, and vice-versa for standard ports.
+# This logic might need refinement based on exact SMTP requirements (e.g. SSL on 465, TLS on 587)
+paperless_base_config["PAPERLESS_EMAIL_USE_SSL"] = "false" if email_use_tls_str == "true" else "true"
+
+
+# Paperless URL and CSRF settings from user's snippet
+host = data.get("host", "") # FQDN for the service
+if host:
+    paperless_base_config["PAPERLESS_URL"] = "https://" + host
+    # CSRF_TRUSTED_ORIGINS usually includes the PAPERLESS_URL
+    paperless_base_config["PAPERLESS_CSRF_TRUSTED_ORIGINS"] = "https://" + host 
+else:
+    paperless_base_config["PAPERLESS_URL"] = ""
+    paperless_base_config["PAPERLESS_CSRF_TRUSTED_ORIGINS"] = ""
+
+# Default Tika settings from user's snippet (these seem to be fixed defaults)
+paperless_base_config["PAPERLESS_TIKA_ENABLED"] = "true" # User snippet had "1", env var typically "true"
+paperless_base_config["PAPERLESS_TIKA_GOTENBERG_ENDPOINT"] = "http://paperless-gotenberg:3000" # Use service name
+paperless_base_config["PAPERLESS_TIKA_ENDPOINT"] = "http://paperless-tika:9998" # Use service name
+# --- END OF STANDARD PAPERLESS NGX APPLICATION SETTINGS ---
+
+
+# --- LDAP Configuration (conditionally added) ---
+ldap_specific_config = {}
 PAPERLESS_LDAP_ENABLED_INPUT = data.get("PAPERLESS_LDAP_ENABLED", "false")
 ldap_enabled = PAPERLESS_LDAP_ENABLED_INPUT.lower() == "true"
 
-ldap_config["PAPERLESS_LDAP_ENABLED"] = "true" if ldap_enabled else "false"
+# These are the primary control flags for LDAP
+ldap_specific_config["PAPERLESS_LDAP_ENABLED"] = "true" if ldap_enabled else "false"
+ldap_specific_config["DJANGO_SETTINGS_MODULE"] = "paperless.ldap_settings" if ldap_enabled else ""
+ldap_specific_config["PAPERLESS_LDAP_PIP_INSTALL"] = "true" if ldap_enabled else "false"
 
 if ldap_enabled:
-    agent.log_info("LDAP is enabled by user configuration. Setting up LDAP environment variables.")
-    ldap_config["DJANGO_SETTINGS_MODULE"] = "paperless.ldap_settings"
-    ldap_config["PAPERLESS_LDAP_PIP_INSTALL"] = "true" # Always true if LDAP is enabled
-
+    agent.log_info("LDAP is enabled. Configuring LDAP connection and schema variables.")
     # Populate other LDAP settings from data, using sensible defaults
-    ldap_config["PAPERLESS_LDAP_SERVER_URI"] = data.get("PAPERLESS_LDAP_SERVER_URI", "")
-    ldap_config["PAPERLESS_LDAP_START_TLS"] = data.get("PAPERLESS_LDAP_START_TLS", "false")
-    ldap_config["PAPERLESS_LDAP_TLS_VERSION"] = data.get("PAPERLESS_LDAP_TLS_VERSION", "") # Let ldap_settings.py handle default protocol if empty
-    ldap_config["PAPERLESS_LDAP_BIND_DN"] = data.get("PAPERLESS_LDAP_BIND_DN", "")
-    ldap_config["PAPERLESS_LDAP_BIND_PASSWORD"] = data.get("PAPERLESS_LDAP_BIND_PASSWORD", "") # Handled by agent.set_secret
-    ldap_config["PAPERLESS_LDAP_USER_BASE_DN"] = data.get("PAPERLESS_LDAP_USER_BASE_DN", "")
-    ldap_config["PAPERLESS_LDAP_USER_OBJECT_CLASS"] = data.get("PAPERLESS_LDAP_USER_OBJECT_CLASS", "inetOrgPerson")
-    ldap_config["PAPERLESS_LDAP_USER_LOOKUP_FIELD"] = data.get("PAPERLESS_LDAP_USER_LOOKUP_FIELD", "username")
-    ldap_config["PAPERLESS_LDAP_USERNAME_ATTR"] = data.get("PAPERLESS_LDAP_USERNAME_ATTR", "uid")
-    ldap_config["PAPERLESS_LDAP_FIRSTNAME_ATTR"] = data.get("PAPERLESS_LDAP_FIRSTNAME_ATTR", "givenName")
-    ldap_config["PAPERLESS_LDAP_LASTNAME_ATTR"] = data.get("PAPERLESS_LDAP_LASTNAME_ATTR", "sn")
-    ldap_config["PAPERLESS_LDAP_EMAIL_ATTR"] = data.get("PAPERLESS_LDAP_EMAIL_ATTR", "mail")
-    ldap_config["PAPERLESS_LDAP_USER_UID_FORMAT"] = data.get("PAPERLESS_LDAP_USER_UID_FORMAT", "")
-    ldap_config["PAPERLESS_LDAP_REQUIRE_USER_GROUP"] = data.get("PAPERLESS_LDAP_REQUIRE_USER_GROUP", "")
-    ldap_config["PAPERLESS_LDAP_ADMIN_GROUP_DN"] = data.get("PAPERLESS_LDAP_ADMIN_GROUP_DN", "")
-    ldap_config["PAPERLESS_LDAP_LLDAP_FIX"] = data.get("PAPERLESS_LDAP_LLDAP_FIX", "false")
+    ldap_specific_config["PAPERLESS_LDAP_SERVER_URI"] = data.get("PAPERLESS_LDAP_SERVER_URI", "")
+    ldap_specific_config["PAPERLESS_LDAP_START_TLS"] = data.get("PAPERLESS_LDAP_START_TLS", "false")
+    ldap_specific_config["PAPERLESS_LDAP_TLS_VERSION"] = data.get("PAPERLESS_LDAP_TLS_VERSION", "")
+    ldap_specific_config["PAPERLESS_LDAP_BIND_DN"] = data.get("PAPERLESS_LDAP_BIND_DN", "")
+    ldap_specific_config["PAPERLESS_LDAP_BIND_PASSWORD"] = data.get("PAPERLESS_LDAP_BIND_PASSWORD", "")
+    ldap_specific_config["PAPERLESS_LDAP_USER_BASE_DN"] = data.get("PAPERLESS_LDAP_USER_BASE_DN", "")
+    ldap_specific_config["PAPERLESS_LDAP_USER_OBJECT_CLASS"] = data.get("PAPERLESS_LDAP_USER_OBJECT_CLASS", "inetOrgPerson")
+    ldap_specific_config["PAPERLESS_LDAP_USER_LOOKUP_FIELD"] = data.get("PAPERLESS_LDAP_USER_LOOKUP_FIELD", "username")
+    ldap_specific_config["PAPERLESS_LDAP_USERNAME_ATTR"] = data.get("PAPERLESS_LDAP_USERNAME_ATTR", "uid")
+    ldap_specific_config["PAPERLESS_LDAP_FIRSTNAME_ATTR"] = data.get("PAPERLESS_LDAP_FIRSTNAME_ATTR", "givenName")
+    ldap_specific_config["PAPERLESS_LDAP_LASTNAME_ATTR"] = data.get("PAPERLESS_LDAP_LASTNAME_ATTR", "sn")
+    ldap_specific_config["PAPERLESS_LDAP_EMAIL_ATTR"] = data.get("PAPERLESS_LDAP_EMAIL_ATTR", "mail")
+    ldap_specific_config["PAPERLESS_LDAP_USER_UID_FORMAT"] = data.get("PAPERLESS_LDAP_USER_UID_FORMAT", "")
+    ldap_specific_config["PAPERLESS_LDAP_REQUIRE_USER_GROUP"] = data.get("PAPERLESS_LDAP_REQUIRE_USER_GROUP", "")
+    ldap_specific_config["PAPERLESS_LDAP_ADMIN_GROUP_DN"] = data.get("PAPERLESS_LDAP_ADMIN_GROUP_DN", "")
+    ldap_specific_config["PAPERLESS_LDAP_LLDAP_FIX"] = data.get("PAPERLESS_LDAP_LLDAP_FIX", "false")
 
-    # Handle sensitive password fields using agent.set_secret if available,
-    # otherwise, they are just written to the env file (less ideal).
-    # For now, write_envfile will handle it. NethServer admins should be aware of .env file sensitivity.
     if data.get("PAPERLESS_LDAP_BIND_PASSWORD"):
-         agent.set_secret("PAPERLESS_LDAP_BIND_PASSWORD_SECRET", data.get("PAPERLESS_LDAP_BIND_PASSWORD"))
-         # ldap_settings.py would then need to be adapted to try reading _SECRET suffixed variable if the main one is empty.
-         # For simplicity now, directly writing to env file.
+        # If agent.set_secret is to be used, ldap_settings.py must be adapted to read from _SECRET variables.
+        # For now, password goes into the env file with other LDAP settings.
+        pass 
 else:
-    agent.log_info("LDAP is not enabled by user configuration.")
-    # Ensure DJANGO_SETTINGS_MODULE is not set or defaults to standard paperless.settings
-    # If paperless-ngx.env might already exist, we might need to unset it.
-    # However, configure scripts usually define the full state.
-    ldap_config["DJANGO_SETTINGS_MODULE"] = "" # Explicitly empty to ensure default Django behavior
-    ldap_config["PAPERLESS_LDAP_PIP_INSTALL"] = "false"
+    agent.log_info("LDAP is not enabled. Standard Django settings will be used.")
 
+# Merge standard app settings with LDAP specific settings.
+# Start with base config, then update with LDAP specific settings.
+# This ensures LDAP control flags (DJANGO_SETTINGS_MODULE etc.) take precedence.
+paperless_app_env_config = paperless_base_config.copy() # Start with a copy of base settings
+paperless_app_env_config.update(ldap_specific_config) # Override with LDAP settings where keys overlap
 
-# Write the combined Paperless NGX app specific settings (including LDAP)
-# This assumes a file named 'paperless-ngx.env' is appropriate for these.
-# The original script didn't explicitly write such a file, relying on dump_env.
-# Let's consolidate Paperless specific settings here.
-paperless_app_config = {**ldap_config} # Start with LDAP, add others if any
+agent.write_envfile('paperless-app.env', paperless_app_env_config)
+# --- END OF LDAP Configuration ---
 
-# Example: if other app-specific (non-DB, non-secret) vars were needed:
-# paperless_app_config["PAPERLESS_TIME_ZONE"] = data.get("PAPERLESS_TIME_ZONE", "UTC")
-# For now, only LDAP related vars are managed here beyond DB and SECRET.
-
-agent.write_envfile('paperless-app.env', paperless_app_config)
-# --- END LDAP Configuration ---
-
-
-# Make sure everything is saved inside the environment file
-# just before starting systemd unit
+# Finalize environment for the service
 agent.dump_env()
 agent.log_info("Environment data dumped for systemd service.")
