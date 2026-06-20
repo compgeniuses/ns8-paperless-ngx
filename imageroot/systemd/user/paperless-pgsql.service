@@ -13,7 +13,7 @@ ExecStartPre=/bin/mkdir -p %S/state/restore/
 ExecStart=/usr/bin/podman run --conmon-pidfile %t/paperless-pgsql.pid \
     --cidfile %t/paperless-pgsql.ctr-id --cgroups=no-conmon --pod-id-file %t/ns8-paperless-ngx.pod-id \
     --replace -d --name paperless-pgsql --env-file=%S/state/database.env \
-    --volume postgres-data:/var/lib/postgresql/data:Z \
+    --volume postgres-data:/var/lib/postgresql:Z \
     ${POSTGRES_IMAGE}
 ExecStop=/usr/bin/podman stop --ignore --cidfile %t/paperless-pgsql.ctr-id -t 10
 ExecStopPost=/usr/bin/podman rm --ignore -f --cidfile %t/paperless-pgsql.ctr-id
