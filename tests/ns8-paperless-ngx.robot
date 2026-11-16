@@ -74,6 +74,12 @@ Create a readable PostgreSQL backup
     ...    return_rc=True    return_stdout=False
     Should Be Equal As Integers    ${rc}    0
 
+Restore the populated dump into a clean database
+    Put File    ${CURDIR}/check_restore_dump.sh    /tmp/paperless-restore-check-${module_id}.sh
+    ${output}    ${rc} =    Execute Command    runagent -m ${module_id} bash -s < /tmp/paperless-restore-check-${module_id}.sh
+    ...    return_rc=True
+    Should Be Equal As Integers    ${rc}    0    ${output}
+
 Uninstall Paperless
     [Teardown]    Close All Connections
     ${rc} =    Execute Command    remove-module --no-preserve ${module_id}

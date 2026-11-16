@@ -34,7 +34,8 @@ Implemented in this branch:
 
 - Standard QEMU workflow replacing DigitalOcean infrastructure; real HTTP routing
   checks replace kickstart placeholders. Install and 1.3.1-update scenarios ingest
-  and download a real PDF, compare text/dates and preserve original secret files.
+  and download a real PDF, compare text/dates, preserve original secret files,
+  and restore the populated dump into an isolated clean database.
 - Minimum core label; correct image-cleanup name; real metadata documentation,
   source and issue links, standard categories and translated description.
 - Preserve omitted and custom configuration values. Blank admin password means
@@ -74,8 +75,9 @@ validated core update first.
 
 The first candidate is not production approved. QEMU must prove fresh install,
 existing 1.3.1 upgrade, document consumption/download/search, authentication,
-backup/restore and repeat configuration. The current Robot coverage is an initial
-smoke test, not proof of document-level migration or restore correctness.
+backup/restore and repeat configuration. The Robot coverage exercises ingestion, document/secret preservation and
+a populated database restore. It does not yet prove a complete NS8 Restic
+restore with matching media volumes.
 
 Before a stable baseline release, also complete:
 
@@ -86,7 +88,9 @@ Before a stable baseline release, also complete:
   for a consistent database/document snapshot.
 - Test upgrade hooks against every supported 1.x layout; do not claim one minor
   version can skip required migrations merely because its image starts.
-- Verify repository topics and forge logo/screenshot/metadata quality separately.
+- Add the repository `ns8` topic: the connected GitHub installation returned
+  HTTP 403 for repository-topic administration, so this remains a maintainer
+  action. Verify forge logo/screenshot/metadata quality when updating NethForge.
 
 ## Application migration stages (not release approval)
 

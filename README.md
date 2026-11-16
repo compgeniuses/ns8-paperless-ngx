@@ -90,7 +90,8 @@ workflow on Rocky Linux 9 and Debian 13. The image name is explicitly
 uses the branch image; the update scenario installs module 1.3.1 first, configures
 it, ingests a real PDF, updates to the branch image and verifies original-file
 bytes, document content/dates, login and secret-file preservation. Both scenarios
-check Traefik, partial configuration and a readable database dump.
+check Traefik, partial configuration and a database dump restored into an
+isolated clean PostgreSQL volume with the original document record.
 
 Run it from GitHub Actions using **Run workflow**, selecting the branch to test.
 The shared runner provides Robot Framework and SSH dependencies. The removed

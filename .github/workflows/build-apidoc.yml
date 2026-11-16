@@ -3,9 +3,13 @@ name: "Build API JSON Schema docs"
 on:
   push:
     paths:
+      - '.github/workflows/build-apidoc.yml'
       - '**/validate-input.json'
       - '**/validate-output.json'
       - '**/validator-definitions.json'
+
+permissions:
+  contents: write
 
 jobs:
   build-apidoc:
