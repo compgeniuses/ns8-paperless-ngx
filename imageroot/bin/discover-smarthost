@@ -1,36 +1,26 @@
 #!/usr/bin/env python3
-
-#
-# Copyright (C) 2023 Nethesis S.r.l.
-# SPDX-License-Identifier: GPL-3.0-or-later
-#
-
+"""Map NS8 mail transport settings at every application startup."""
+import os
 import sys
 import agent
-import os
 
-# Connect the local Redis replica. This is necessary to consistently start
-# the service if the leader node is not reachable:
-rdb = agent.redis_connect(use_replica=True)
-smtp_settings = agent.get_smarthost_settings(rdb)
-
-envfile = "smarthost.env"
-
-# Using .tmp suffix: do not overwrite the target file until the new one is
-# saved to disk:
-with open(envfile + ".tmp", "w") as efp:
-    # HINT for ns8-paperless-ngx: adjust variable names as needed
-    print(f"SMTP_ENABLED={'1' if smtp_settings['enabled'] else ''}", file=efp)
-    print(f"SMTP_HOST={smtp_settings['host']}", file=efp)
-    print(f"SMTP_PORT={smtp_settings['port']}", file=efp)
-    print(f"SMTP_USERNAME={smtp_settings['username']}", file=efp)
-    print(f"SMTP_PASSWORD={smtp_settings['password']}", file=efp)
-    print(f"SMTP_ENCRYPTION={smtp_settings['encrypt_smtp']}", file=efp)
-    print(f"SMTP_TLSVERIFY={'1' if smtp_settings['tls_verify'] else ''}", file=efp)
-
-# Commit changes by replacing the existing envfile:
-os.replace(envfile + ".tmp", envfile)
-
-# NOTE: The generated envfile can be included in the service container
-#       with `podman run --env-file` or in Systemd unit with
-#       `Environment=-%S/state/smarthost.env`
+os.umask(0o077)
+settings = agent.get_smarthost_settings(agent.redis_connect(use_replica=True))
+# Paperless/Django does not expose a certificate-verification toggle. Keep TLS
+# verification enabled; do not mistake tls_verify for the transport selection.
+if settings['enabled'] and not settings['tls_verify']:
+    print('Paperless verifies SMTP TLS certificates; install a trusted certificate on the relay.', file=sys.stderr)
+transport = settings['encrypt_smtp']
+values = {
+    'PAPERLESS_EMAIL_HOST': settings['host'] if settings['enabled'] else 'localhost',
+    'PAPERLESS_EMAIL_PORT': settings['port'],
+    'PAPERLESS_EMAIL_HOST_USER': settings['username'] if settings['enabled'] else '',
+    'PAPERLESS_EMAIL_HOST_PASSWORD': settings['password'] if settings['enabled'] else '',
+    'PAPERLESS_EMAIL_FROM': settings['username'] if settings['enabled'] else '',
+    'PAPERLESS_EMAIL_USE_TLS': str(settings['enabled'] and transport == 'starttls').lower(),
+    'PAPERLESS_EMAIL_USE_SSL': str(settings['enabled'] and transport == 'tls').lower(),
+}
+temporary = 'smarthost.env.tmp'
+agent.write_envfile(temporary, values)
+os.chmod(temporary, 0o600)
+os.replace(temporary, 'smarthost.env')

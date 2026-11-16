@@ -1,11 +1,19 @@
-#!/bin/bash
+#!/usr/bin/env python3
+"""Keep the last successful database dump until a new dump completes."""
+import os
+import subprocess
+import tempfile
+import agent
 
-#
-# Copyright (C) 2022 Nethesis S.r.l.
-# SPDX-License-Identifier: GPL-3.0-or-later
-#
-
-set -e
-
-echo "Dumping paperless postgres database"
-podman exec paperless-pgsql pg_dump -U paperless --format=c  paperless > paperless.pg_dump
+config = agent.read_envfile('database.env')
+fd, temporary = tempfile.mkstemp(prefix='paperless.pg_dump.', dir='.')
+try:
+    with os.fdopen(fd, 'wb') as output:
+        subprocess.run(['podman', 'exec', 'paperless-pgsql', 'pg_dump',
+                        '-U', config.get('POSTGRES_USER', 'paperless'),
+                        '--format=c', config.get('POSTGRES_DATABASE', 'paperless')],
+                       stdout=output, check=True)
+    os.replace(temporary, 'paperless.pg_dump')
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)

@@ -1,78 +1,55 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "configure-module input",
-    "$id": "http://schema.nethserver.org/sogo/configure-module-input.json",
-    "description": "Configure paperless",
-    "examples": [
-        {
-            "paperless_name": "Password,1234",
-            "PAPERLESS_ADMIN_USER": "matomo",
-            "PAPERLESS_ADMIN_PASSWORD": "Administrator,user1",
-            "PAPERLESS_ADMIN_MAIL": "domain.org",
-            "PAPERLESS_TIME_ZONE": false,
-            "PAPERLESS_OCR_LANGUAGE": "matomo.domain.org",
-            "PAPERLESS_COOKIE_PREFIX": "matomo",
-            "host": "1,0",
-            "PAPERLESS_URL": "1,0",
-            "POSTGRES_DB": "matomo,m1",
-            "POSTGRES_USER": "mysql",
-            "POSTGRES_PASSWORD": "mysql",
-            "PAPERLESS_TIKA_ENABLED": "mysql",
-            "PHP_ENABLE_OPCACHE": "mysql",
-            "PHP_MEMORY_LIMIT": "mysql"
-        }
-    ],
-    "type": "object",
-    "properties": {
-        "paperless_name": {
-            "type": "string"
-        },
-        "PAPERLESS_ADMIN_USER": {
-            "type": "string"
-        },
-        "PAPERLESS_ADMIN_PASSWORD": {
-            "type": "string"
-        },
-        "PAPERLESS_ADMIN_MAIL": {
-            "type": "string"
-        },
-        "PAPERLESS_TIME_ZONE": {
-            "type": "string"
-        },
-        "PAPERLESS_OCR_LANGUAGE": {
-            "type": "string"
-        },
-        "PAPERLESS_COOKIE_PREFIX": {
-            "type": "string"
-        },
-        "host": {
-            "type": "string"
-        },
-        "PAPERLESS_URL": {
-            "type": "string"
-        },
-        "POSTGRES_DB": {
-            "type": "string"
-        },
-        "POSTGRES_USER": {
-            "type": "string"
-        },
-        "POSTGRES_PASSWORD": {
-            "type": "string"
-        },
-        "PAPERLESS_TIKA_ENABLED": {
-            "type": "boolean"
-        },
-        "PHP_ENABLE_OPCACHE": {
-            "type": "boolean"
-        },
-        "PHP_MEMORY_LIMIT": {
-            "type": "string"
-        }
-
-   
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "get-configuration",
+  "$id": "https://schema.nethserver.org/paperlessngx/get-configuration-validate-output.json",
+  "description": "Read Paperless configuration; password is always an empty string.",
+  "type": "object",
+  "properties": {
+    "paperless_name": {
+      "type": "string"
     },
-    "required": [
-        "host"
-    ]
+    "PAPERLESS_ADMIN_USER": {
+      "type": "string"
+    },
+    "PAPERLESS_ADMIN_PASSWORD": {
+      "type": "string"
+    },
+    "PAPERLESS_ADMIN_MAIL": {
+      "type": "string"
+    },
+    "PAPERLESS_TIME_ZONE": {
+      "type": "string"
+    },
+    "PAPERLESS_OCR_LANGUAGE": {
+      "type": "string"
+    },
+    "PAPERLESS_COOKIE_PREFIX": {
+      "type": "string"
+    },
+    "PAPERLESS_FILENAME_FORMAT": {
+      "type": "string"
+    },
+    "host": {
+      "type": "string"
+    },
+    "http2https": {
+      "type": "boolean"
+    },
+    "lets_encrypt": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "paperless_name",
+    "PAPERLESS_ADMIN_USER",
+    "PAPERLESS_ADMIN_PASSWORD",
+    "PAPERLESS_ADMIN_MAIL",
+    "PAPERLESS_TIME_ZONE",
+    "PAPERLESS_OCR_LANGUAGE",
+    "PAPERLESS_COOKIE_PREFIX",
+    "PAPERLESS_FILENAME_FORMAT",
+    "host",
+    "http2https",
+    "lets_encrypt"
+  ]
 }

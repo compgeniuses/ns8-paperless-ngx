@@ -1,13 +1,8 @@
 #!/bin/bash
-
-#
-# Copyright (C) 2023 Nethesis S.r.l.
-# SPDX-License-Identifier: GPL-3.0-or-later
-#
-
-# If the control reaches this step, the service can be enabled and started
-
+set -euo pipefail
+exec 1>&2
 touch smarthost.env
-
 systemctl --user enable paperless.service
-systemctl --user restart paperless.service
+systemctl --user restart paperless.service paperless-pgsql.service paperless-redis.service paperless-gotenberg.service paperless-tika.service paperless-server.service
+
+python3 -c 'import agent; agent.set_progress(100)'

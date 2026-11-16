@@ -5,4 +5,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
+exec 1>&2
 rm -vf paperless.pg_dump

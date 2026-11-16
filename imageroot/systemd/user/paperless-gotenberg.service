@@ -10,7 +10,8 @@
 [Unit]
 Description=Podman paperless-gotenberg server
 BindsTo=paperless.service
-After=paperless-redis.service paperless-pgsql.service paperless-server.service
+After=paperless.service
+Before=paperless-server.service
 [Service]
 Environment=PODMAN_SYSTEMD_UNIT=%n
 EnvironmentFile=%S/state/environment

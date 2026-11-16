@@ -23,7 +23,7 @@ container=$(buildah from scratch)
 # Reuse existing nodebuilder-kickstart container, to speed up builds
 if ! buildah containers --format "{{.ContainerName}}" | grep -q nodebuilder-ns8-paperlessngx; then
     echo "Pulling NodeJS runtime..."
-    buildah from --name nodebuilder-ns8-paperlessngx -v "${PWD}:/usr/src:Z" docker.io/library/node:lts
+    buildah from --name nodebuilder-ns8-paperlessngx -v "${PWD}:/usr/src:Z" docker.io/library/node:22.22.0-bookworm
 fi
 
 echo "Build static UI files with node..."
@@ -31,7 +31,7 @@ buildah run \
     --workingdir=/usr/src/ui \
     --env="NODE_OPTIONS=--openssl-legacy-provider" \
     nodebuilder-ns8-paperlessngx \
-    sh -c "yarn install && yarn build"
+    sh -c "yarn install --frozen-lockfile --non-interactive && yarn build"
 
 # Add imageroot directory to the container image
 buildah add "${container}" imageroot /imageroot
@@ -41,8 +41,8 @@ buildah config --entrypoint=/ \
     --label="org.nethserver.authorizations=traefik@node:routeadm" \
     --label="org.nethserver.tcp-ports-demand=1" \
     --label="org.nethserver.rootfull=0" \
+    --label="org.nethserver.min-core=3.0.0" \
     --label="org.nethserver.images=docker.io/library/redis:7.2.3-bookworm docker.io/library/postgres:15.5-bookworm docker.io/paperlessngx/paperless-ngx:${paperless_version} docker.io/apache/tika:${tika_version} docker.io/gotenberg/gotenberg:${gotenberg_version}" \
-    --label="org.nethserver.tcp-ports-demand=1" \
     "${container}"
 # Commit the image
 buildah commit "${container}" "${repobase}/${reponame}"

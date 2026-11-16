@@ -1,10 +1,4 @@
 #!/bin/bash
-
-#
-# Copyright (C) 2023 Nethesis S.r.l.
-# SPDX-License-Identifier: GPL-3.0-or-later
-#
-
+set -euo pipefail
 exec 1>&2
-
-systemctl --user try-restart paperless.service
+systemctl --user try-restart paperless.service paperless-pgsql.service paperless-redis.service paperless-gotenberg.service paperless-tika.service paperless-server.service

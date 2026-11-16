@@ -1,9 +1,13 @@
 {
   "name": "paperless",
   "description": {
-    "en": "Paperless-ngx is a community-supported open-source document management system that transforms your physical documents into a searchable online archive so you can keep, well, less paper."
+    "en": "Paperless-ngx is a community-supported open-source document management system that transforms your physical documents into a searchable online archive so you can keep, well, less paper.",
+    "it": "Paperless-ngx organizza documenti digitali e scansioni in un archivio ricercabile con riconoscimento del testo."
   },
-  "categories": ["collaboration"],
+  "categories": [
+    "office",
+    "storage"
+  ],
   "authors": [
     {
       "name": "Martin Bhuong",
@@ -11,9 +15,10 @@
     }
   ],
   "docs": {
-    "documentation_url": "https://docs.kickstart.com/",
-    "bug_url": "https://github.com/compgeniuses/ns8-paperless-ngx",
-    "code_url": "https://github.com/compgeniuses/ns8-paperless-ngx"
+    "documentation_url": "https://docs.paperless-ngx.com/",
+    "bug_url": "https://github.com/compgeniuses/ns8-paperless-ngx/issues",
+    "code_url": "https://github.com/compgeniuses/ns8-paperless-ngx",
+    "relnotes_url": "https://github.com/compgeniuses/ns8-paperless-ngx/releases"
   },
-  "source": "ghcr.io/compgeniuses/ns8-paperless-ngx"
+  "source": "ghcr.io/compgeniuses/paperlessngx"
 }

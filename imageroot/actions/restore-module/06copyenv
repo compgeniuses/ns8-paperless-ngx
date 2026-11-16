@@ -47,4 +47,5 @@ for evar in [
         "PHP_MEMORY_LIMIT",
         "PAPERLESS_FILENAME_FORMAT",
     ]:
-    agent.set_env(evar, original_environment[evar])
+    if evar in original_environment and evar != "PAPERLESS_ADMIN_PASSWORD":
+        agent.set_env(evar, original_environment[evar])

@@ -12,6 +12,7 @@ import agent
 import secrets
 
 data = json.load(sys.stdin)
+os.umask(0o077)
 
 # Setup default values
 random_key = secrets.token_hex(16)
@@ -29,6 +30,7 @@ POSTGRES_PASSWORD = generate_random_password()
 
 db_config = {
     "POSTGRES_DATABASE": POSTGRES_DB,
+    "POSTGRES_DB": POSTGRES_DB,
     "POSTGRES_USER": POSTGRES_USER,
     "POSTGRES_PASSWORD": POSTGRES_PASSWORD,
 }

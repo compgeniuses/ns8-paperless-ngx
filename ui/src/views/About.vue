@@ -22,7 +22,7 @@
     </cv-row>
     <cv-row>
       <cv-column>
-        <cv-tile :light="true">
+        <NsTile :light="true">
           <cv-skeleton-text
             v-if="loading.moduleInfo"
             :paragraph="true"
@@ -152,7 +152,7 @@
               </span>
             </div>
           </div>
-        </cv-tile>
+        </NsTile>
       </cv-column>
     </cv-row>
   </cv-grid>

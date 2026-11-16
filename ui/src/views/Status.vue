@@ -45,15 +45,19 @@
             :loading="loading.getStatus"
             class="min-height-card"
           >
-          <template slot="content">
-            <div class="card-rows">
-              <div class="card-row">
-                <NsButton kind="ghost" :icon="Launch20" @click="goToPaperless">
-                  {{ $t("status.open_paperless_page") }}
-                </NsButton>
+            <template slot="content">
+              <div class="card-rows">
+                <div class="card-row">
+                  <NsButton
+                    kind="ghost"
+                    :icon="Launch20"
+                    @click="goToPaperless"
+                  >
+                    {{ $t("status.open_paperless_page") }}
+                  </NsButton>
+                </div>
               </div>
-            </div>
-          </template>
+            </template>
           </NsInfoCard>
         </cv-column>
       </template>
@@ -127,9 +131,9 @@
     </cv-row>
     <cv-row v-if="!loading.getStatus">
       <cv-column v-if="!status.services.length">
-        <cv-tile light>
+        <NsTile light>
           <NsEmptyState :title="$t('status.no_services')"> </NsEmptyState>
-        </cv-tile>
+        </NsTile>
       </cv-column>
       <cv-column
         v-else
@@ -151,12 +155,12 @@
     </cv-row>
     <cv-row v-else>
       <cv-column :md="4" :max="4">
-        <cv-tile light>
+        <NsTile light>
           <cv-skeleton-text
             :paragraph="true"
             :line-count="4"
           ></cv-skeleton-text>
-        </cv-tile>
+        </NsTile>
       </cv-column>
     </cv-row>
     <!-- images -->
@@ -167,7 +171,7 @@
     </cv-row>
     <cv-row>
       <cv-column>
-        <cv-tile light>
+        <NsTile light>
           <div v-if="!loading.getStatus">
             <NsEmptyState
               v-if="!status.images.length"
@@ -209,7 +213,7 @@
             :paragraph="true"
             :line-count="5"
           ></cv-skeleton-text>
-        </cv-tile>
+        </NsTile>
       </cv-column>
     </cv-row>
     <!-- volumes -->
@@ -220,7 +224,7 @@
     </cv-row>
     <cv-row>
       <cv-column>
-        <cv-tile light>
+        <NsTile light>
           <div v-if="!loading.getStatus">
             <NsEmptyState
               v-if="!status.volumes.length"
@@ -262,7 +266,7 @@
             :paragraph="true"
             :line-count="5"
           ></cv-skeleton-text>
-        </cv-tile>
+        </NsTile>
       </cv-column>
     </cv-row>
   </cv-grid>
@@ -277,7 +281,7 @@ import {
   IconService,
   UtilService,
 } from "@nethserver/ns8-ui-lib";
-import Settings32 from "@carbon/icons-vue/es/settings/32"; 
+import Settings32 from "@carbon/icons-vue/es/settings/32";
 export default {
   name: "Status",
   mixins: [TaskService, QueryParamService, IconService, UtilService],
@@ -361,7 +365,7 @@ export default {
   },
   methods: {
     goToPaperless() {
-        window.open('http://' + this.host);
+      window.open("http://" + this.host);
     },
     async getConfiguration() {
       this.loading.getConfiguration = true;

@@ -11,7 +11,7 @@ exec 1>&2 # Redirect any output to the journal (stderr)
 mkdir -vp restore
 cat - >restore/paperless_restore.sh <<'EOS'
 # Read dump file from standard input:
-pg_restore --no-owner --no-privileges -U paperless -d paperless
+pg_restore --exit-on-error --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE"
 ec=$?
 docker_temp_server_stop
 exit $ec
@@ -28,6 +28,7 @@ podman run \
     --volume=postgres-data:/var/lib/postgresql/data:Z \
     --replace --name=restore_db \
     --env-file=database.env \
+    --env POSTGRES_DB="$(sed -n 's/^POSTGRES_DATABASE=//p' database.env)" \
     --env TZ=UTC \
     "${POSTGRES_IMAGE}" <  paperless.pg_dump
 

@@ -1,44 +1,17 @@
 #!/usr/bin/env python3
-
-#
-# Copyright (C) 2023 Nethesis S.r.l.
-# SPDX-License-Identifier: GPL-3.0-or-later
-#
-
+"""Read configuration without exposing stored passwords to the reader role."""
+import json
 import os
 import sys
-import json
 import agent
 
-config = {}
-
-if os.path.exists("paperless-ngx.env"):
-    config["PAPERLESS_TIME_ZONE"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_TIME_ZONE"]
-    config["PAPERLESS_OCR_LANGUAGE"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_OCR_LANGUAGE"]
-    config["PAPERLESS_ADMIN_USER"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_ADMIN_USER"]
-    config["PAPERLESS_ADMIN_PASSWORD"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_ADMIN_PASSWORD"]
-    config["PAPERLESS_ADMIN_MAIL"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_ADMIN_MAIL"]
-    config["PAPERLESS_COOKIE_PREFIX"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_COOKIE_PREFIX"]
-    config["PAPERLESS_FILENAME_FORMAT"] = agent.read_envfile("paperless-ngx.env")["PAPERLESS_FILENAME_FORMAT"]
-else:
-    config["PAPERLESS_TIME_ZONE"] = ""
-    config["PAPERLESS_OCR_LANGUAGE"] = ""
-    config["PAPERLESS_ADMIN_USER"] = ""
-    config["PAPERLESS_ADMIN_PASSWORD"] = ""
-    config["PAPERLESS_ADMIN_MAIL"] = ""
-    config["PAPERLESS_COOKIE_PREFIX"] = ""
-    config["PAPERLESS_FILENAME_FORMAT"] = ""
-# Read current configuration from Redis
-config["host"] = os.getenv("TRAEFIK_HOST","")
-config["http2https"] = os.getenv("TRAEFIK_HTTP2HTTPS") == "True"
-config["lets_encrypt"] = os.getenv("TRAEFIK_LETS_ENCRYPT") == "True"
-config["paperless_name"] = os.getenv("PAPERLESS_NGX_NAME","")
-config["PAPERLESS_TIME_ZONE"] = os.getenv("PAPERLESS_TIME_ZONE","")
-config["PAPERLESS_OCR_LANGUAGE"] = os.getenv("PAPERLESS_OCR_LANGUAGE","")
-config["PAPERLESS_ADMIN_USER"] = os.getenv("PAPERLESS_ADMIN_USER","")
-config["PAPERLESS_ADMIN_PASSWORD"] = os.getenv("PAPERLESS_ADMIN_PASSWORD","")
-config["PAPERLESS_ADMIN_MAIL"] = os.getenv("PAPERLESS_ADMIN_MAIL","")
-config["PAPERLESS_COOKIE_PREFIX"] = os.getenv("PAPERLESS_COOKIE_PREFIX","")
-config["PAPERLESS_FILENAME_FORMAT"] = os.getenv("PAPERLESS_FILENAME_FORMAT","")
-
-json.dump(config, fp=sys.stdout)
+values = agent.read_envfile('paperless-ngx.env') if os.path.exists('paperless-ngx.env') else {}
+keys = ['PAPERLESS_TIME_ZONE', 'PAPERLESS_OCR_LANGUAGE', 'PAPERLESS_ADMIN_USER',
+        'PAPERLESS_ADMIN_MAIL', 'PAPERLESS_COOKIE_PREFIX', 'PAPERLESS_FILENAME_FORMAT']
+config = {key: values.get(key, os.getenv(key, '')) for key in keys}
+config.update(host=os.getenv('TRAEFIK_HOST', ''),
+              http2https=os.getenv('TRAEFIK_HTTP2HTTPS', '').lower() == 'true',
+              lets_encrypt=os.getenv('TRAEFIK_LETS_ENCRYPT', '').lower() == 'true',
+              paperless_name=values.get('PAPERLESS_NGX_NAME', os.getenv('PAPERLESS_NGX_NAME', '')),
+              PAPERLESS_ADMIN_PASSWORD='')
+json.dump(config, sys.stdout)
