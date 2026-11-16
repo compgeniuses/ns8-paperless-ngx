@@ -76,9 +76,11 @@ existing installation. Restore the original files from backup. Existing volume
 names and database/signing credentials are retained by this compatibility change.
 
 See [the conformity audit and staged upgrade plan](docs/UPGRADE-PLAN.md).
-The first compatibility candidate retains Paperless **2.11.4** and the existing
-runtime dependency versions. It is not a v3 upgrade or a production-approved
-release. Upstream requires **2.20.15** before v3. Rollback after database migration
+The published compatibility baseline `1.3.2-testing.1` retains Paperless
+**2.11.4** and the original supporting-service versions. The next
+[dependency refresh candidate](docs/DEPENDENCY-UPDATE-1.3.2.md) keeps Paperless
+2.11.4 while updating PostgreSQL, Redis, Gotenberg and Tika. Neither candidate
+is a v3 upgrade or a production-approved release. Upstream requires **2.20.15** before v3. Rollback after database migration
 requires restoring matching database and document volumes; changing an image
 back is insufficient.
 

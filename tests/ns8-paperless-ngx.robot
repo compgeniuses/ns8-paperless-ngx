@@ -31,11 +31,15 @@ Configure Paperless
     Should Be Equal As Integers    ${rc}    0
     Wait Until Keyword Succeeds    5 minutes    10 seconds    Paperless responds through Traefik
 
-Ingest a real PDF and record original secrets
+Ingest PDF Office and email documents and record original secrets
     Put File    ${CURDIR}/paperless_probe.py    /tmp/paperless-probe-${module_id}.py
-    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-probe-${module_id}.py create /tmp/paperless-proof-${module_id}.json
+    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-probe-${module_id}.py create /tmp/paperless-proof-${module_id}.json 2>&1
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}    0    ${output}
+    Put File    ${CURDIR}/runtime_probe.py    /tmp/paperless-runtime-${module_id}.py
+    ${rc} =    Execute Command    python3 /tmp/paperless-runtime-${module_id}.py ${module_id} seed 2>&1
+    ...    return_rc=True    return_stdout=False
+    Should Be Equal As Integers    ${rc}    0
     ${checksums}    ${rc} =    Execute Command    runagent -m ${module_id} sh -c 'cd "$AGENT_STATE_DIR" && sha256sum database.env secret_key.env'
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}    0
@@ -43,19 +47,36 @@ Ingest a real PDF and record original secrets
 
 Upgrade the production baseline
     Skip If    '${SCENARIO}' != 'update'    Fresh install scenario
+    ${rc} =    Execute Command    api-cli run update-module --data '{"force":true,"module_url":"ghcr.io/compgeniuses/paperlessngx:1.3.2-testing.1","instances":["${module_id}"]}'
+    ...    return_rc=True    return_stdout=False
+    Should Be Equal As Integers    ${rc}    0
+    Wait Until Keyword Succeeds    5 minutes    10 seconds    Paperless responds through Traefik
+    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-probe-${module_id}.py verify /tmp/paperless-proof-${module_id}.json 2>&1
+    ...    return_rc=True
+    Should Be Equal As Integers    ${rc}    0    ${output}
     ${rc} =    Execute Command    api-cli run update-module --data '{"force":true,"module_url":"${IMAGE_URL}","instances":["${module_id}"]}'
     ...    return_rc=True    return_stdout=False
     Should Be Equal As Integers    ${rc}    0
     Wait Until Keyword Succeeds    5 minutes    10 seconds    Paperless responds through Traefik
 
 Verify data and secrets after installation or update
-    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-probe-${module_id}.py verify /tmp/paperless-proof-${module_id}.json
+    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-probe-${module_id}.py verify /tmp/paperless-proof-${module_id}.json 2>&1
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}    0    ${output}
     ${checksums}    ${rc} =    Execute Command    runagent -m ${module_id} sh -c 'cd "$AGENT_STATE_DIR" && sha256sum database.env secret_key.env'
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}    0
     Should Be Equal    ${checksums}    ${original_secrets}
+
+Verify dependency versions and Redis persistence
+    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-runtime-${module_id}.py ${module_id} verify 2>&1
+    ...    return_rc=True
+    Should Be Equal As Integers    ${rc}    0    ${output}
+
+Convert new Office and email files after the dependency update
+    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-probe-${module_id}.py create-after /tmp/paperless-after-${module_id}.json 2>&1
+    ...    return_rc=True
+    Should Be Equal As Integers    ${rc}    0    ${output}
 
 Partial configuration preserves settings and hides secrets
     ${rc} =    Execute Command    api-cli run module/${module_id}/configure-module --data '{"host":"${APP_HOST}","http2https":false,"lets_encrypt":false}'
@@ -79,6 +100,19 @@ Restore the populated dump into a clean database
     ${output}    ${rc} =    Execute Command    runagent -m ${module_id} bash -s < /tmp/paperless-restore-check-${module_id}.sh
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}    0    ${output}
+
+Restore a full NS8 backup into a clean instance
+    Put File    ${CURDIR}/full_restore_probe.py    /tmp/paperless-full-restore-${module_id}.py
+    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-full-restore-${module_id}.py ${module_id} /tmp/paperless-restored.json 2>&1
+    ...    return_rc=True
+    ${result}    ${found} =    Execute Command    cat /tmp/paperless-restored.json
+    ...    return_rc=True
+    IF    ${found} == 0
+        ${restored} =    Evaluate    json.loads($result)    modules=json
+        Set Suite Variable    ${module_id}    ${restored}[module_id]
+    END
+    Should Be Equal As Integers    ${rc}    0    ${output}
+    Wait Until Keyword Succeeds    5 minutes    10 seconds    Paperless responds through Traefik
 
 Uninstall Paperless
     [Teardown]    Close All Connections

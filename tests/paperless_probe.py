@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-"""Exercise real ingestion and original-file downloads through Traefik in QEMU.
-
-Only disposable CI credentials and documents are used. Never run this against
-production: the create operation uploads a test document.
-"""
+"""Disposable QEMU-only document ingestion and preservation checks."""
 import hashlib
 import http.client
+import io
 import json
 import os
 from pathlib import Path
 import sys
 import time
+from urllib.parse import quote
+import zipfile
 
 HOST = 'paperless.example.org'
 TITLE = 'NS8 upgrade preservation proof'
 
 
 def request(method, path, body=None, headers=None):
-    connection = http.client.HTTPConnection('127.0.0.1', 80, timeout=30)
+    connection = http.client.HTTPConnection('127.0.0.1', 80, timeout=60)
     connection.request(method, path, body=body, headers={'Host': HOST, **(headers or {})})
     response = connection.getresponse()
     data = response.read()
@@ -46,53 +45,95 @@ def pdf():
     return result
 
 
-def main():
-    operation, snapshot_path = sys.argv[1:]
-    token = json.loads(request('POST', '/api/token/', json.dumps({
-        'username': 'paperlessadmin', 'password': 'Test-only-password-123!'
-    }), {'Content-Type': 'application/json'}))['token']
-    auth = {'Authorization': f'Token {token}'}
-    if operation == 'create':
-        boundary = 'NS8PaperlessTestBoundary'
-        body = (f'--{boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\n{TITLE}\r\n'
-                f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="upgrade-proof.pdf"\r\n'
-                'Content-Type: application/pdf\r\n\r\n').encode() + pdf() + f'\r\n--{boundary}--\r\n'.encode()
-        request('POST', '/api/documents/post_document/', body,
-                {**auth, 'Content-Type': f'multipart/form-data; boundary={boundary}'})
-        deadline = time.monotonic() + 240
-        while True:
-            documents = json.loads(request('GET', '/api/documents/?title__iexact=NS8%20upgrade%20preservation%20proof', headers=auth))['results']
-            if documents:
-                break
-            if time.monotonic() > deadline:
-                raise RuntimeError('Uploaded PDF was not consumed within four minutes')
-            time.sleep(5)
-        document = documents[0]
-    elif operation == 'verify':
-        previous = json.loads(Path(snapshot_path).read_text())
-        document = json.loads(request('GET', f"/api/documents/{previous['id']}/", headers=auth))
-    else:
-        raise ValueError('Expected create or verify')
+def fixture(kind, stage):
+    title = TITLE if kind == 'pdf' else f'NS8 {stage} {kind.upper()} preservation proof'
+    if kind == 'pdf':
+        return title, 'application/pdf', pdf()
+    if kind == 'docx':
+        parts = {
+            '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+            '_rels/.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+            'word/document.xml': f'<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>{title}</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr></w:body></w:document>',
+        }
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, value in parts.items():
+                info = zipfile.ZipInfo(name, date_time=(2024, 1, 2, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(info, value)
+        return title, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', output.getvalue()
+    if kind == 'eml':
+        payload = (f'From: Alice <alice@example.org>\r\nTo: Bob <bob@example.org>\r\n'
+                   f'Subject: {title}\r\nDate: Tue, 02 Jan 2024 12:00:00 +0000\r\n'
+                   f'Message-ID: <ns8-{stage}-proof@example.org>\r\n'
+                   'MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n'
+                   f'Content-Transfer-Encoding: 8bit\r\n\r\n{title}\r\n')
+        return title, 'message/rfc822', payload.encode()
+    raise ValueError(kind)
+
+
+def wait_document(title, auth):
+    deadline = time.monotonic() + 300
+    while True:
+        documents = json.loads(request('GET', '/api/documents/?title__iexact=' + quote(title), headers=auth))['results']
+        documents = [item for item in documents if item['title'] == title]
+        if documents:
+            return documents[0]
+        if time.monotonic() > deadline:
+            raise RuntimeError(f'Document was not consumed: {title}')
+        time.sleep(5)
+
+
+def inspect_document(document, kind, stage, auth):
+    title, _, payload = fixture(kind, stage)
     original = request('GET', f"/api/documents/{document['id']}/download/?original=true", headers=auth)
-    assert original == pdf(), 'Original document download changed'
-    assert TITLE.lower() in document['content'].lower(), 'Extracted text is missing'
-    assert document['title'] == TITLE
+    assert original == payload, f'{kind}: original file changed'
+    assert title.lower() in document['content'].lower(), f'{kind}: extracted text missing'
+    assert document['title'] == title
+    archive = request('GET', f"/api/documents/{document['id']}/download/?original=false", headers=auth)
+    assert archive.startswith(b'%PDF-'), f'{kind}: archive is not a PDF'
     deadline = time.monotonic() + 60
     while True:
         results = json.loads(request('GET', '/api/documents/?query=preservation', headers=auth))['results']
         if any(item['id'] == document['id'] for item in results):
             break
         if time.monotonic() > deadline:
-            raise RuntimeError('Consumed document is missing from full-text search')
+            raise RuntimeError(f'{kind}: missing from full-text search')
         time.sleep(3)
     snapshot = {key: document[key] for key in ['id', 'title', 'content', 'created', 'original_file_name']}
-    snapshot['sha256'] = hashlib.sha256(original).hexdigest()
-    if operation == 'create':
+    snapshot.update(kind=kind, stage=stage, sha256=hashlib.sha256(original).hexdigest(), archive_sha256=hashlib.sha256(archive).hexdigest())
+    return snapshot
+
+
+def main():
+    operation, snapshot_path = sys.argv[1:]
+    token = json.loads(request('POST', '/api/token/', json.dumps({
+        'username': 'paperlessadmin', 'password': 'Test-only-password-123!'
+    }), {'Content-Type': 'application/json'}))['token']
+    auth = {'Authorization': f'Token {token}'}
+    if operation in ('create', 'create-after'):
+        stage = 'before' if operation == 'create' else 'after'
+        kinds = ['pdf', 'docx', 'eml'] if stage == 'before' else ['docx', 'eml']
+        snapshots = []
+        for kind in kinds:
+            title, mime, payload = fixture(kind, stage)
+            boundary = 'NS8PaperlessTestBoundary'
+            body = (f'--{boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\n{title}\r\n'
+                    f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="upgrade-proof-{stage}.{kind}"\r\n'
+                    f'Content-Type: {mime}\r\n\r\n').encode() + payload + f'\r\n--{boundary}--\r\n'.encode()
+            request('POST', '/api/documents/post_document/', body,
+                    {**auth, 'Content-Type': f'multipart/form-data; boundary={boundary}'})
+            snapshots.append(inspect_document(wait_document(title, auth), kind, stage, auth))
         os.umask(0o077)
-        Path(snapshot_path).write_text(json.dumps(snapshot))
+        Path(snapshot_path).write_text(json.dumps(snapshots))
+    elif operation == 'verify':
+        for previous in json.loads(Path(snapshot_path).read_text()):
+            document = json.loads(request('GET', f"/api/documents/{previous['id']}/", headers=auth))
+            actual = inspect_document(document, previous['kind'], previous['stage'], auth)
+            assert actual == previous, f"{previous['kind']}: document metadata, text or archive changed"
     else:
-        assert snapshot == previous, 'Document text, dates or metadata changed during module update'
-    print('Document ingestion, authentication, search, text and original download verified')
+        raise ValueError('Expected create, create-after or verify')
+    print('PDF/Office/email ingestion, original/archive bytes, metadata, login and search verified')
 
 
 if __name__ == '__main__':
