@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Read runtime versions and verify disposable Redis persistence markers."""
+import json
+import subprocess
+import sys
+
+MARKER = 'ns8-ci-upgrade-preservation'
+
+
+def run(module, *command):
+    result = subprocess.run(['runagent', '-m', module, *command], text=True, stdout=subprocess.PIPE, check=True)
+    return result.stdout.strip()
+
+
+def main():
+    module, operation = sys.argv[1:]
+    if operation == 'seed':
+        run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', 'SET', 'ns8-test:upgrade-proof', MARKER)
+        run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', 'RPUSH', 'ns8-test:pending-documents', MARKER)
+        run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', 'SAVE')
+    elif operation == 'verify':
+        assert run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', '--raw', 'GET', 'ns8-test:upgrade-proof') == MARKER
+        assert run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', '--raw', 'LRANGE', 'ns8-test:pending-documents', '0', '-1') == MARKER
+        info = run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', 'INFO', 'server')
+        assert 'redis_version:7.2.16' in info
+        command = '''import agent,subprocess
+v=agent.read_envfile('database.env')
+subprocess.run(['podman','exec','paperless-pgsql','psql','-U',v['POSTGRES_USER'],'-d',v['POSTGRES_DATABASE'],'-Atc','SHOW server_version_num'],check=True)
+'''
+        pg = run(module, 'python3', '-c', command)
+        assert pg == '150020', pg
+        command = '''import urllib.request
+print(urllib.request.urlopen('http://127.0.0.1:3000/version').read().decode())
+print(urllib.request.urlopen('http://127.0.0.1:9998/version').read().decode())
+'''
+        versions = run(module, 'podman', 'exec', 'paperless-server', 'python3', '-c', command)
+        assert '8.40.0' in versions, versions
+        # The four-part Docker version identifies Tika Server 3.3.3.
+        assert '3.3.3' in versions, versions
+        audit = """import agent,subprocess
+v=agent.read_envfile('database.env')
+sql="SELECT n.nspname, c.relname, am.amname, string_agg(opc.opcname, ',') FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_am am ON am.oid=c.relam CROSS JOIN LATERAL unnest(i.indclass) cl(opcoid) JOIN pg_opclass opc ON opc.oid=cl.opcoid WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' GROUP BY n.nspname,c.relname,am.amname ORDER BY n.nspname,c.relname"
+subprocess.run(['podman','exec','paperless-pgsql','psql','-U',v['POSTGRES_USER'],'-d',v['POSTGRES_DATABASE'],'-Atc',sql],check=True)
+"""
+        print('PostgreSQL application-index inventory for maintenance review:')
+        print(run(module, 'python3', '-c', audit))
+        print('PostgreSQL 15.20, Redis 7.2.16, Gotenberg 8.40.0, Tika 3.3.3 verified; Redis key/list retained')
+    else:
+        raise ValueError(operation)
+
+
+if __name__ == '__main__':
+    main()

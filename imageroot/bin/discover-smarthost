@@ -20,7 +20,7 @@ values = {
     'PAPERLESS_EMAIL_USE_TLS': str(settings['enabled'] and transport == 'starttls').lower(),
     'PAPERLESS_EMAIL_USE_SSL': str(settings['enabled'] and transport == 'tls').lower(),
 }
-temporary = 'smarthost.env.tmp'
+temporary = f'smarthost.env.{os.getpid()}.tmp'
 agent.write_envfile(temporary, values)
 os.chmod(temporary, 0o600)
 os.replace(temporary, 'smarthost.env')

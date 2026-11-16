@@ -23,7 +23,11 @@ webserver change discussed here concerns Paperless/Granian, not Matomo.
 
 ## First compatibility candidate
 
-Proposed NS8 tag: **1.3.2-testing.1**, not yet approved or published.
+Published baseline: **1.3.2-testing.1**, from commit `8467cbd`.
+
+The next [dependency refresh candidate](DEPENDENCY-UPDATE-1.3.2.md) is
+**1.3.2-testing.2**, with Paperless still 2.11.4. The original baseline runtime
+versions below describe the immutable testing.1 tag.
 
 Keep runtime images unchanged: Paperless 2.11.4, PostgreSQL 15.5-bookworm,
 Redis 7.2.3-bookworm, Gotenberg 8.9.1, Tika 3.0.0.0-BETA2-full. The build-only Node
