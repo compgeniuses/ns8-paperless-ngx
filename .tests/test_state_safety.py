@@ -79,6 +79,50 @@ class StateSafety(unittest.TestCase):
             self.assertFalse((state / 'secret_key.env').exists())
             self.assertEqual(read_env('paperless-db.env')['PAPERLESS_DBPASS'], 'original-secret')
 
+    def test_legacy_layout_migrates_original_values_and_keeps_file_overrides(self):
+        with state_directory() as state:
+            write_env('environment', {'PAPERLESS_SECRET_KEY': 'original-signing-key',
+                                     'PAPERLESS_ADMIN_PASSWORD': 'original-admin-secret',
+                                     'PAPERLESS_TIME_ZONE': 'UTC', 'PAPERLESS_OCR_MODE': 'force',
+                                     'PAPERLESS_NGX_IMAGE': 'must-not-copy',
+                                     'POSTGRES_PASSWORD': 'original-db-secret'})
+            write_env('database.env', {'POSTGRES_DATABASE': 'custom-db', 'POSTGRES_USER': 'custom-user', 'POSTGRES_PASSWORD': 'original-db-secret'})
+            write_env('paperless-ngx.env', {'PAPERLESS_TIME_ZONE': 'Europe/Rome'})
+            def unset(key):
+                values = read_env('environment')
+                del values[key]
+                write_env('environment', values)
+            agent = types.SimpleNamespace(read_envfile=read_env, write_envfile=write_env, unset_env=unset)
+            with patch.dict('sys.modules', agent=agent):
+                runpy.run_path(str(ROOT / 'imageroot/bin/discover-database'))
+                runpy.run_path(str(ROOT / 'imageroot/bin/discover-database'))
+            self.assertEqual(read_env('secret_key.env')['PAPERLESS_SECRET_KEY'], 'original-signing-key')
+            self.assertEqual(read_env('paperless-db.env')['PAPERLESS_DBPASS'], 'original-db-secret')
+            options = read_env('paperless-ngx.env')
+            self.assertEqual(options['PAPERLESS_ADMIN_PASSWORD'], 'original-admin-secret')
+            self.assertEqual(options['PAPERLESS_TIME_ZONE'], 'Europe/Rome')
+            self.assertEqual(options['PAPERLESS_OCR_MODE'], 'force')
+            self.assertNotIn('PAPERLESS_NGX_IMAGE', options)
+            for key in ['PAPERLESS_SECRET_KEY', 'PAPERLESS_ADMIN_PASSWORD', 'POSTGRES_PASSWORD']:
+                self.assertNotIn(key, read_env('environment'))
+            for path in ['secret_key.env', 'paperless-db.env', 'paperless-ngx.env']:
+                self.assertEqual((state / path).stat().st_mode & 0o777, 0o600)
+
+    def test_legacy_restore_stages_original_secrets_without_publishing_them(self):
+        import json
+        values = {'PAPERLESS_SECRET_KEY': 'restored-key',
+                  'PAPERLESS_ADMIN_PASSWORD': 'restored-password',
+                  'PAPERLESS_TIME_ZONE': 'UTC', 'TRAEFIK_HOST': 'paperless.example.org'}
+        published = {}
+        agent = types.SimpleNamespace(set_env=lambda key, value: published.update({key: value}), write_envfile=write_env)
+        with state_directory() as state, patch.dict('sys.modules', agent=agent), patch('sys.stdin', io.StringIO(json.dumps({'environment': values}))):
+            runpy.run_path(str(ROOT / 'imageroot/actions/restore-module/06copyenv'))
+            self.assertEqual(read_env('secret_key.env')['PAPERLESS_SECRET_KEY'], 'restored-key')
+            self.assertEqual(read_env('paperless-ngx.env')['PAPERLESS_ADMIN_PASSWORD'], 'restored-password')
+            self.assertEqual((state / 'secret_key.env').stat().st_mode & 0o777, 0o600)
+            self.assertNotIn('PAPERLESS_SECRET_KEY', published)
+            self.assertNotIn('PAPERLESS_ADMIN_PASSWORD', published)
+
     def test_smtp_transport_does_not_depend_on_certificate_verification(self):
         for transport, expected in [('none', ('false', 'false')), ('starttls', ('true', 'false')), ('tls', ('false', 'true'))]:
             for verify in [True, False]:

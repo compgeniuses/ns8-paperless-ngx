@@ -14,6 +14,8 @@ It requires **NS8 core 3.0.0 or later**. It is not a production v3 upgrade.
 - Stop returning the admin password through the reader-accessible configuration
   action. Secret files are private to the module user. Missing original keys or
   credentials must be recovered from backup; startup does not invent replacements.
+- Recover older 1.x environment-based settings and signing keys into protected
+  files without replacing existing file values; preserve the originals on restore.
 - Correct SMTP transport discovery, service startup/restart order and restore
   settings. Failed database dumps preserve the last successful dump.
 - Add QEMU fresh-install and 1.3.1-upgrade tests with real PDF ingestion, original

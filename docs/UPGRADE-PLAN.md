@@ -44,6 +44,9 @@ Implemented in this branch:
 - Read-only configuration no longer returns the stored admin password; the UI
   accepts an unchanged/blank password. This is intentional security hardening.
 - No guessed database credentials or signing-key regeneration on service startup.
+  Older 1.x settings/keys are recovered from their original environment into
+  protected files; existing file overrides win and secret copies are removed
+  from the legacy environment after migration.
 - Explicit pod/child ordering and restart lists; restore tolerates absent legacy
   keys, uses restored database account names and parses route booleans correctly.
 - Atomic database dump replacement; diagnostics do not contaminate action stdout.
@@ -61,9 +64,9 @@ are retained. No production configuration is rewritten by publishing a branch.
 
 ## Local validation
 
-Seven regression tests pass, covering partial configuration, secret non-disclosure,
+Nine regression tests pass, covering partial configuration, secret non-disclosure,
 failed/successful backup replacement, original credentials and signing-key
-preservation, and SMTP transport selection. Python/JSON/bash syntax and
+preservation, legacy upgrade/restore conversion, and SMTP transport selection. Python/JSON/bash syntax and
 `git diff --check` pass. The frozen UI install and production build pass with
 existing lint, browser-data and bundle-size warnings. GitHub contract, image
 and API documentation builds pass. QEMU install/update validation is running;
@@ -95,6 +98,17 @@ Before a stable baseline release, also complete:
 - Add the repository `ns8` topic: the connected GitHub installation returned
   HTTP 403 for repository-topic administration, so this remains a maintainer
   action. Verify forge logo/screenshot/metadata quality when updating NethForge.
+
+## Existing stable release layouts
+
+Source review of every stable tag shows PostgreSQL 15.5-bookworm and Redis
+7.2.3-bookworm throughout the 1.x line. Paperless versions were 2.2.1 (module
+1.0.0), 2.3.1 (1.1.0), 2.3.2 (1.1.1), 2.4.2 (1.2.1), then 2.11.4 (1.3.0/1.3.1).
+Before 1.3, application settings and the signing key lived in the module
+environment. Upgrade discovery now migrates those originals without replacing
+file values, and restore stages legacy snapshot values before inherited Restic
+restore. Repeat migration is covered by regression tests. Full populated upgrade
+coverage for those older release images remains a stable-release requirement.
 
 ## Proposed release count (not release approval)
 

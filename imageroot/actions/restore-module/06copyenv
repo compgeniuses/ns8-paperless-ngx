@@ -20,6 +20,7 @@
 # along with NethServer.  If not, see COPYING.
 #
 
+import os
 import sys
 import json
 import agent
@@ -49,3 +50,18 @@ for evar in [
     ]:
     if evar in original_environment and evar != "PAPERLESS_ADMIN_PASSWORD":
         agent.set_env(evar, original_environment[evar])
+
+# Older 1.x snapshots kept these values in the original environment, rather
+# than backing up the separate files introduced in 1.3. Stage the originals
+# before Restic restore: newer snapshots overwrite these files with their
+# authoritative copies in the inherited 10restore step.
+os.umask(0o077)
+legacy_options = {key: value for key, value in original_environment.items()
+                  if key.startswith("PAPERLESS_") and not key.startswith("PAPERLESS_DB")
+                  and key != "PAPERLESS_SECRET_KEY" and not key.endswith("_IMAGE")}
+if legacy_options:
+    agent.write_envfile('paperless-ngx.env', legacy_options)
+    os.chmod('paperless-ngx.env', 0o600)
+if original_environment.get('PAPERLESS_SECRET_KEY'):
+    agent.write_envfile('secret_key.env', {'PAPERLESS_SECRET_KEY': original_environment['PAPERLESS_SECRET_KEY']})
+    os.chmod('secret_key.env', 0o600)

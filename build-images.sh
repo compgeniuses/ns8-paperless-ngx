@@ -21,16 +21,16 @@ tika_version="3.0.0.0-BETA2-full"
 container=$(buildah from scratch)
 
 # Reuse existing nodebuilder-kickstart container, to speed up builds
-if ! buildah containers --format "{{.ContainerName}}" | grep -q nodebuilder-ns8-paperlessngx; then
+if ! buildah containers --format "{{.ContainerName}}" | grep -q nodebuilder-ns8-paperlessngx-node22.22.0; then
     echo "Pulling NodeJS runtime..."
-    buildah from --name nodebuilder-ns8-paperlessngx -v "${PWD}:/usr/src:Z" docker.io/library/node:22.22.0-bookworm
+    buildah from --name nodebuilder-ns8-paperlessngx-node22.22.0 -v "${PWD}:/usr/src:Z" docker.io/library/node:22.22.0-bookworm
 fi
 
 echo "Build static UI files with node..."
 buildah run \
     --workingdir=/usr/src/ui \
     --env="NODE_OPTIONS=--openssl-legacy-provider" \
-    nodebuilder-ns8-paperlessngx \
+    nodebuilder-ns8-paperlessngx-node22.22.0 \
     sh -c "yarn install --frozen-lockfile --non-interactive && yarn build"
 
 # Add imageroot directory to the container image
