@@ -65,9 +65,16 @@ CI module, restores into a clean module, and verifies document/archive hashes,
 configuration, signing/database credentials and Redis markers. This is a test
 procedure; it does not alter production backup schedules or instances.
 
-QEMU and the full restore checks are pending for this branch. Run the standard
-Test module workflow and review the artifacts before approving the exact testing
-tag. A stable release requires separate approval after the outstanding production
+QEMU passed on 2026-11-16 for runtime commit
+`74067b50a29ee2077b86c97cd1f8e3241aaa5a7b`: Rocky 9 upgrade passed all 12 tests;
+Debian 13 installation passed 11 tests with the upgrade-only test skipped.
+Both scenarios passed full NS8/Restic restore, preservation checks and conversion
+of new Office/email documents. [Results and artifacts](https://github.com/compgeniuses/ns8-paperless-ngx/actions/runs/43919914773).
+The fresh-install schema contained 264 application indexes, all btree, with no
+GIN/GiST indexes or unconstrained bpchar operator class in the recorded inventory.
+That inventory describes the CI fixture, not every production schema.
+
+A stable release requires separate approval after the outstanding production
 validation gates in the upgrade plan are satisfied.
 
 The planned path stays **1.3.1 -> 1.3.2 -> 1.4.x -> 2.0.x**. Module 1.4.x will
