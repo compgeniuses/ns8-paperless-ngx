@@ -72,6 +72,7 @@ Verify dependency versions and Redis persistence
     ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-runtime-${module_id}.py ${module_id} verify 2>&1
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}    0    ${output}
+    Log    ${output}
 
 Convert new Office and email files after the dependency update
     ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-probe-${module_id}.py create-after /tmp/paperless-after-${module_id}.json 2>&1
