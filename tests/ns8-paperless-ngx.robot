@@ -22,7 +22,7 @@ Install Paperless
     ${output}    ${rc} =    Execute Command    add-module ${initial_image} 1
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}    0
-    ${result} =    Evaluate    json.loads($output)    modules=json
+    ${result} =    Evaluate    ast.literal_eval($output)    modules=ast
     Set Suite Variable    ${module_id}    ${result}[module_id]
 
 Configure Paperless

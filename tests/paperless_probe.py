@@ -77,6 +77,14 @@ def main():
     assert original == pdf(), 'Original document download changed'
     assert TITLE.lower() in document['content'].lower(), 'Extracted text is missing'
     assert document['title'] == TITLE
+    deadline = time.monotonic() + 60
+    while True:
+        results = json.loads(request('GET', '/api/documents/?query=preservation', headers=auth))['results']
+        if any(item['id'] == document['id'] for item in results):
+            break
+        if time.monotonic() > deadline:
+            raise RuntimeError('Consumed document is missing from full-text search')
+        time.sleep(3)
     snapshot = {key: document[key] for key in ['id', 'title', 'content', 'created', 'original_file_name']}
     snapshot['sha256'] = hashlib.sha256(original).hexdigest()
     if operation == 'create':
@@ -84,7 +92,7 @@ def main():
         Path(snapshot_path).write_text(json.dumps(snapshot))
     else:
         assert snapshot == previous, 'Document text, dates or metadata changed during module update'
-    print('Document ingestion, authentication, text and original download verified')
+    print('Document ingestion, authentication, search, text and original download verified')
 
 
 if __name__ == '__main__':
