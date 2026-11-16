@@ -1,115 +1,123 @@
-# ns8-paperless ngx
-Paperless-ngx is a community-supported open-source document management system that transforms your physical documents into a searchable online archive so you can keep, well, less paper.
+# Paperless-ngx for NethServer 8
 
-## Install
+Paperless-ngx transforms scanned and digital documents into a searchable archive.
+This rootless NS8 module runs Paperless, PostgreSQL, Redis, Apache Tika and
+Gotenberg in one pod, behind the node's Traefik proxy.
 
-Instantiate the module with:
+## Installation and configuration
 
-    add-module ghcr.io/compgeniuses/paperlessngx:latest 1
+Select an approved stable tag from [Releases](https://github.com/compgeniuses/ns8-paperless-ngx/releases).
+Replace `VERSION` with that tag; do not use a development branch in production.
 
-The output of the command will return the instance name.
-Output example:
+```sh
+add-module ghcr.io/compgeniuses/paperlessngx:VERSION 1
+```
 
-    {"module_id": "paperlessngx", "image_name": "paperlessngx", "image_url": "ghcr.io/compgeniuses/paperlessngx:latest"}
+Use the returned module ID in subsequent commands, for example `paperlessngx1`.
+Configure a DNS name pointing to the node:
 
-## Configure
+```sh
+api-cli run module/paperlessngx1/configure-module --data '{
+  "host": "paperless.example.org",
+  "lets_encrypt": false,
+  "http2https": true,
+  "paperless_name": "Paperless",
+  "PAPERLESS_ADMIN_USER": "paperlessadmin",
+  "PAPERLESS_ADMIN_PASSWORD": "<choose-a-unique-password>",
+  "PAPERLESS_TIME_ZONE": "UTC",
+  "PAPERLESS_OCR_LANGUAGE": "eng"
+}'
+```
 
-Let's assume that the paperless instance is named `paperlessngx1`.
+`host` is required. `lets_encrypt` and `http2https` default to true on first
+configuration and retain their saved values when omitted later. Enable Let's
+Encrypt only when the hostname is publicly resolvable and certificate issuance
+is available. The existing default timezone is `America/Los_Angeles`.
 
-Launch `configure-module`, by setting the following parameters:
+Other supported inputs are `PAPERLESS_ADMIN_MAIL`, `PAPERLESS_COOKIE_PREFIX` and
+`PAPERLESS_FILENAME_FORMAT`. Omitted settings and additional options already
+stored in `state/paperless-ngx.env` are retained. Historical database, PHP,
+`PAPERLESS_URL` and Tika configure inputs remain accepted for compatibility but
+are ignored: the module manages these settings internally.
 
-- `paperless_name`: the name given to the instance that wil also appear as the name on the dachboard
-- `PAPERLESS_TIME_ZONE`: the timezone for the project, a config that can be modified
-- `PAPERLESS_TIME_ZONE`: the default is America/Los_Angeles
-- `PAPERLESS_ADMIN_USER`: define the default username and password for superadmin: set to = paperlessadmin
-- `PAPERLESS_ADMIN_PASSWORD`: Define the Default password Set to = P@perle5$
-- `lets_encrypt`: Set LEtsecnrypt to True or False, Default is FALSE
-- `http2https`: set redirect to True or False, Default is True
-- `host`: the traefik host url for the project
+An empty or omitted admin password preserves the existing saved value. On first
+setup, supply a password or retrieve the randomly generated one as the module
+administrator from the protected `state/paperless-ngx.env` file. Paperless's admin
+environment settings bootstrap an account; manage existing account passwords
+within Paperless. `get-configuration` always returns an empty password. Do not
+attach environment files or database dumps to public issues.
 
-- ...
+The application is served at the configured hostname, for example
+`https://paperless.example.org/`. It does not use a `/paperlessngx/` subpath.
+Tika and Gotenberg are enabled for Office documents and email conversion.
 
-Example:
+## Email
 
-    api-cli run module/paperlessngx1/configure-module --data '{"host": "paperlessngx.domain.com"}'
+The application discovers the centralized NS8 smarthost each time its service
+starts. A `smarthost-changed` event restarts only the Paperless application to
+refresh its effective mail settings. Centrally managed mail variables take
+precedence over stale values written by previous module versions.
 
-    or if modifying another value: 
+Transport choices map to plain SMTP, STARTTLS or implicit TLS. Paperless 2.11.4
+always verifies TLS certificates; NS8's `tls_verify=false` cannot be applied to
+this application. Use a relay certificate trusted by the container. A disabled
+smarthost clears the relay credentials and restores localhost SMTP defaults.
 
-    api-cli run module/paperlessngx5/configure-module --data '{"host": "paperlessngx.domain.com","paperless_name": "MyPaperless NGX"}'
+## Backup, restore and upgrades
 
-    api-cli run module/paperlessngx1/configure-module --data '{
-        "host": "papperlessngx.rocky9-pve2.org",
-        "lets_encrypt": false,
-        "http2https": true,
-        "paperless_name": "paperless-ngx",
-        "PAPERLESS_ADMIN_PASSWORD": "P@perle5$",
-        "PAPERLESS_ADMIN_USER":"paperlessadmin",
-        "PAPERLESS_ADMIN_MAIL":"foo@domain.com",
-        "PAPERLESS_TIME_ZONE":"America/Los_Angeles",
-        "PAPERLESS_OCR_LANGUAGE":"eng",
-        "PAPERLESS_COOKIE_PREFIX":"paperlessngx"
-    }'
+NS8 backups include a PostgreSQL dump, Paperless document/data/export/consume
+volumes, Redis data and the original configuration and secret files. A failed
+database dump does not replace the last successful dump. A readable dump alone
+does not prove a consistent document snapshot: validate a populated restore
+before relying on it for an application migration.
 
+Never regenerate a missing signing key or guess database credentials on an
+existing installation. Restore the original files from backup. Existing volume
+names and database/signing credentials are retained by this compatibility change.
 
-The above command will:
-- start and configure the paperlessngx instance
-- (describe configuration process)
-- ...
+See [the conformity audit and staged upgrade plan](docs/UPGRADE-PLAN.md).
+The first compatibility candidate retains Paperless **2.11.4** and the existing
+runtime dependency versions. It is not a v3 upgrade or a production-approved
+release. Upstream requires **2.20.15** before v3. Rollback after database migration
+requires restoring matching database and document volumes; changing an image
+back is insufficient.
 
-Additional Parameters are Described here:
-https://docs.paperless-ngx.com/configuration/#hosting-security
-WHile they have not been Implemented, if you require more parameters to be defined, kindly free to raise an issue, and define why and how that parameter should be implemented for use
+## Tests and continuous integration
 
-Send a test HTTP request to the ns8-paperless-ngx backend service:
+[Test module](.github/workflows/test-module.yml) uses the standard NS8 QEMU
+workflow on Rocky Linux 9 and Debian 13. The image name is explicitly
+`paperlessngx`, since it differs from the repository suffix. The install scenario
+uses the branch image; the update scenario installs module 1.3.1 first, configures
+it, ingests a real PDF, updates to the branch image and verifies original-file
+bytes, document content/dates, login and secret-file preservation. Both scenarios
+check Traefik, partial configuration and a database dump restored into an
+isolated clean PostgreSQL volume with the original document record.
 
-    curl http://127.0.0.1/paperlessngx/
+Run it from GitHub Actions using **Run workflow**, selecting the branch to test.
+The shared runner provides Robot Framework and SSH dependencies. The removed
+DigitalOcean-specific/local runner is not required.
 
-## Smarthost setting discovery
+Fast local regression checks:
 
-Some configuration settings, like the smarthost setup, are not part of the
-`configure-module` action input: they are discovered by looking at some
-Redis keys.  To ensure the module is always up-to-date with the
-centralized [smarthost
-setup](https://nethserver.github.io/ns8-core/core/smarthost/) every time
-kickstart starts, the command `bin/discover-smarthost` runs and refreshes
-the `state/smarthost.env` file with fresh values from Redis.
+```sh
+python3 -m unittest discover -s .tests -v
+bash -n build-images.sh
+```
 
-Furthermore if smarthost setup is changed when ns8-paperless-ngx is already
-running, the event handler `events/smarthost-changed/10reload_services`
-restarts the main module service.
-
-See also the `systemd/user/paperless-server.service` file.
-
-This setting discovery is just an example to understand how the module is
-expected to work: it can be rewritten or discarded completely.
+The UI uses the pinned Node builder from `build-images.sh` and a frozen Yarn
+lockfile. Update translations only in `ui/public/i18n/en/translation.json`; other
+language files are maintained by the translation workflow.
 
 ## Uninstall
 
-To uninstall the instance:
+```sh
+remove-module --no-preserve paperlessngx1
+```
 
-    remove-module --no-preserve paperlessngx1
+This removes the instance and its data. Keep a verified backup before removal.
 
-## Testing
+## References
 
-Test the module using the `test-module.sh` script:
-
-
-    ./test-module.sh <NODE_ADDR> ghcr.io/nethserver/ns8-paperless-ngx:latest
-
-The tests are made using [Robot Framework](https://robotframework.org/)
-
-## UI translation
-
-Translated with [Weblate](https://hosted.weblate.org/projects/ns8/).
-
-To setup the translation process:
-
-- add [GitHub Weblate app](https://docs.weblate.org/en/latest/admin/continuous.html#github-setup) to your repository
-- add your repository to [hosted.weblate.org]((https://hosted.weblate.org) or ask a NethServer developer to add it to ns8 Weblate project
-
-## To Do
-[Optional Services:](https://docs.paperless-ngx.com/configuration/#optional-services)
-- Understand and Implement [Apache Tika](https://tika.apache.org/) to your repository
-- Understand and Implement Docker  [gotenberg](https://gotenberg.dev/) to your repository
-
-Paperless can make use of Tika and Gotenberg for parsing and converting "Office" documents (such as ".doc", ".xlsx" and ".odt"). Tika and Gotenberg are also needed to allow parsing of E-Mails (.eml).
+- [Paperless documentation](https://docs.paperless-ngx.com/)
+- [Module issues](https://github.com/compgeniuses/ns8-paperless-ngx/issues)
+- [NethServer module skills](https://github.com/NethServer/agents/tree/main/skills/nethserver-ns8-module)

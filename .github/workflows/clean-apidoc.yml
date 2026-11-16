@@ -3,6 +3,9 @@ name: "Clean up API JSON Schema docs"
 on:
   delete:
 
+permissions:
+  contents: write
+
 jobs:
   build-apidoc:
     name: "Delete apidoc branch ${{ github.event.ref }}"

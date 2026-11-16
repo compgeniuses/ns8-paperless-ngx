@@ -34,7 +34,10 @@
     "http_to_https": "http2https",
     "save": "Save",
     "test_field": "Test field",
-    "instance_configuration": "Configuring {instance} instance"
+    "instance_configuration": "Configuring {instance} instance",
+    "password_hint": "Leave blank to keep the existing password. On first setup, enter a password or retrieve the generated password from the module state.",
+    "configuring": "Applying Paperless settings",
+    "domain_already_used_in_traefik": "This domain is already used by another application."
   },
   "about": {
     "title": "About"

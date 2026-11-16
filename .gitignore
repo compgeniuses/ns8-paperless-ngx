@@ -102,3 +102,8 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Python test artifacts
+__pycache__/
+*.py[cod]
+tests/outputs/

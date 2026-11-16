@@ -1,35 +1,44 @@
 #!/usr/bin/env python3
-
-#
-# Copyright (C) 2023 Nethesis S.r.l.
-# SPDX-License-Identifier: GPL-3.0-or-later
-#
-
+"""Recover legacy configuration from original state without inventing secrets."""
+import os
 import sys
 import agent
-import os
 
-# Connect the local Redis replica. This is necessary to consistently start
-database = "paperless-db.env"
-# check if it exists
-# set the default values
+os.umask(0o077)
+legacy = agent.read_envfile('environment') if os.path.exists('environment') else {}
+if not os.path.exists('paperless-db.env'):
+    if not os.path.exists('database.env'):
+        print('Database credentials missing; restore the original credentials before starting.', file=sys.stderr)
+        sys.exit(2)
+    db = agent.read_envfile('database.env')
+    agent.write_envfile('paperless-db.env', {
+        'PAPERLESS_DBENGINE': 'postgresql', 'PAPERLESS_DBHOST': '127.0.0.1',
+        'PAPERLESS_DBNAME': db['POSTGRES_DATABASE'], 'PAPERLESS_DBUSER': db['POSTGRES_USER'],
+        'PAPERLESS_DBPASS': db['POSTGRES_PASSWORD']})
+if not os.path.exists('secret_key.env'):
+    key = legacy.get('PAPERLESS_SECRET_KEY') or os.getenv('PAPERLESS_SECRET_KEY')
+    if not key:
+        print('Signing key missing; restore the original secret_key.env before starting.', file=sys.stderr)
+        sys.exit(2)
+    agent.write_envfile('secret_key.env', {'PAPERLESS_SECRET_KEY': key})
 
-if not os.path.exists(database):
-    POSTGRES_DB = "paperless"
-    POSTGRES_USER = "paperless"
-    POSTGRES_PASSWORD = "p@perle$$"
-    paperless_config = {
-        "PAPERLESS_DBENGINE": "postgresql",
-        "PAPERLESS_DBHOST": "paperless-pgsql",
-        "PAPERLESS_DBNAME": POSTGRES_DB,
-        "PAPERLESS_DBUSER": POSTGRES_USER,
-        "PAPERLESS_DBPASS": POSTGRES_PASSWORD,
-    }
-    agent.write_envfile("paperless-db.env", paperless_config)
+# Releases before 1.3 stored application options in state/environment and did
+# not create paperless-ngx.env. Keep existing file values authoritative and
+# recover only omitted values. Never let a stale legacy key override the actual
+# signing key or DB credentials that the current services already use.
+options = {key: value for key, value in legacy.items()
+           if key.startswith('PAPERLESS_') and not key.startswith('PAPERLESS_DB')
+           and key != 'PAPERLESS_SECRET_KEY' and not key.endswith('_IMAGE')}
+current = agent.read_envfile('paperless-ngx.env') if os.path.exists('paperless-ngx.env') else {}
+if options or current:
+    merged = {**options, **current}
+    if merged != current or not os.path.exists('paperless-ngx.env'):
+        agent.write_envfile('paperless-ngx.env', merged)
 
-if not os.path.exists("secret_key.env"):
-    PAPERLESS_SECRET_KEY = os.getenv("PAPERLESS_SECRET_KEY", "")
-    secret_key = {
-        "PAPERLESS_SECRET_KEY": PAPERLESS_SECRET_KEY,
-    }
-    agent.write_envfile("secret_key.env", secret_key)
+# Remove old copies only after their authoritative protected files exist.
+for key in ['PAPERLESS_ADMIN_PASSWORD', 'PAPERLESS_SECRET_KEY', 'PAPERLESS_DBPASS', 'POSTGRES_PASSWORD']:
+    if key in legacy:
+        agent.unset_env(key)
+for name in ['database.env', 'paperless-db.env', 'secret_key.env', 'paperless-ngx.env']:
+    if os.path.exists(name):
+        os.chmod(name, 0o600)

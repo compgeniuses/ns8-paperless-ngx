@@ -1,8 +1,9 @@
 [Unit]
 Description=Podman paperless-redis.service
 BindsTo=paperless.service
-After=paperless-pgsql.service
+After=paperless.service
 
+Before=paperless-server.service
 [Service]
 Environment=PODMAN_SYSTEMD_UNIT=%n REDIS_IMAGE=docker.io/library/redis:7
 EnvironmentFile=%S/state/environment
