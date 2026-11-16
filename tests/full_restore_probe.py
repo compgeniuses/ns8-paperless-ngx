@@ -38,6 +38,9 @@ def main():
     original = state_hashes(module)
     uuid = command('runagent', '-m', module, 'printenv', 'MODULE_UUID')
     assert uuid
+    # NS8 checks read access before mkdir. This local destination must exist
+    # inside the disposable gateway's persistent volume before validation.
+    command('podman', 'exec', 'rclone-gateway', 'mkdir', '-p', '/srv/repo/paperless-ci')
     repository = api('add-backup-repository', {
         'name': 'Paperless disposable CI restore', 'provider': 'rclone', 'url': '',
         'password': 'test-only-restic-password',
