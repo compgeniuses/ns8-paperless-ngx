@@ -19,21 +19,25 @@
         "app_volumes": "Volume app|Volumi app",
         "installation_node": "Nodo",
         "mount": "Percorso di mount",
-        "paperless_url": "Paperless URL",
-        "open_paperless_page": "Go to Paperless"
+        "paperless_url": "URL di Paperless",
+        "open_paperless_page": "Apri Paperless"
     },
     "settings": {
         "paperless_fqdn": "Paperless FQDN",
-        "paperless_admin": "Paperless Admin",
-        "paperless_admin_password": "Paperless admin password",
+        "paperless_admin": "Amministratore di Paperless",
+        "paperless_admin_password": "Password dell'amministratore di Paperless",
         "save": "Salva",
         "title": "Impostazioni",
         "configure_instance": "Configura {instance}",
-        "lets_encrypt": "Lets Encrypt",
-        "disabled": "Disabled",
-        "enabled": "Enabled",
+        "lets_encrypt": "Let's Encrypt",
+        "disabled": "Disattivato",
+        "enabled": "Attivato",
         "http_to_https": "http2https",
-        "test_field": "Campo di test"
+        "test_field": "Campo di test",
+        "instance_configuration": "Configurazione dell'istanza {instance}",
+        "password_hint": "Lascia vuoto per mantenere la password esistente. Alla prima configurazione, inserisci una password oppure recupera la password generata dallo stato del modulo.",
+        "configuring": "Applicazione delle impostazioni di Paperless",
+        "domain_already_used_in_traefik": "Questo dominio è già utilizzato da un'altra applicazione."
     },
     "error": {
         "error": "Errore",

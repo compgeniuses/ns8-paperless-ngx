@@ -25,9 +25,12 @@ webserver change discussed here concerns Paperless/Granian, not Matomo.
 
 Published baseline: **1.3.2-testing.1**, from commit `8467cbd`.
 
-The next [dependency refresh candidate](DEPENDENCY-UPDATE-1.3.2.md) is
-**1.3.2-testing.2**, with Paperless still 2.11.4. The original baseline runtime
-versions below describe the immutable testing.1 tag.
+The [dependency refresh](DEPENDENCY-UPDATE-1.3.2.md) is published as
+**1.3.2-testing.2**, with Paperless still 2.11.4. Stable **1.3.2** promotes this
+compatibility checkpoint with completed Italian translations and a release SBOM.
+See the [stable notes](RELEASE-1.3.2.md) and
+[release review](RELEASE-CHECKLIST-1.3.2.md), including inherited security limits.
+The original baseline runtime versions below describe the immutable testing.1 tag.
 
 Keep runtime images unchanged: Paperless 2.11.4, PostgreSQL 15.5-bookworm,
 Redis 7.2.3-bookworm, Gotenberg 8.9.1, Tika 3.0.0.0-BETA2-full. The build-only Node
@@ -70,13 +73,16 @@ are retained. No production configuration is rewritten by publishing a branch.
 
 Nine regression tests pass, covering partial configuration, secret non-disclosure,
 failed/successful backup replacement, original credentials and signing-key
-preservation, legacy upgrade/restore conversion, and SMTP transport selection. Python/JSON/bash syntax and
-`git diff --check` pass. The frozen UI install and production build pass with
-existing lint, browser-data and bundle-size warnings. GitHub contract, image
-and API documentation builds pass. QEMU install/update validation is running;
-record its final results before publishing. The first run exposed a test parser
-issue (`add-module` prints a Python literal rather than JSON); the parser now
-uses `ast.literal_eval`, and the corrected suite must pass before release.
+preservation, legacy upgrade/restore conversion, and SMTP transport selection.
+Python/JSON/bash syntax and whitespace checks pass. The frozen UI install and
+production build pass with existing lint, browser-data and bundle-size warnings.
+GitHub module contracts, image publication and API documentation builds pass.
+
+The published testing.2 image passed QEMU installation and populated 1.3.1 upgrade
+on Debian 13 and Rocky 9, including real PDF/DOCX/EML consumption, new conversions,
+file/archive/metadata preservation, authentication/search, Redis persistence,
+isolated database restore and complete NS8/Restic restore after deletion of the
+source CI module. [Published-image results](https://github.com/compgeniuses/ns8-paperless-ngx/actions/runs/43925248274).
 
 The new minimum-core label requires NS8 core 3.0.0 or later; check the actual
 production nodes before offering this candidate. Older nodes need an independently
@@ -84,21 +90,24 @@ validated core update first.
 
 ## Remaining conformity/production validation
 
-The first candidate is not production approved. QEMU must prove fresh install,
-existing 1.3.1 upgrade, document consumption/download/search, authentication,
-backup/restore and repeat configuration. The Robot coverage exercises ingestion, document/secret preservation and
-a populated database restore. It does not yet prove a complete NS8 Restic
-restore with matching media volumes.
+The installation, populated 1.3.1 update, repeated configuration, document and
+secret preservation, new conversions, populated database restore and complete
+NS8/Restic restore checks have passed. The restore consistency test pauses the
+disposable CI application/Redis containers; production ingestion is not
+quiesced automatically by this release.
 
-Before a stable baseline release, also complete:
+The stable compatibility checkpoint retains disclosed limitations:
 
-- Complete the frontend dependency security audit. Upgrade UI packages
-  separately after the baseline.
-- Restore a populated backup into a clean instance, including original signing
-  key and custom settings; determine whether document consumption must be paused
-  for a consistent database/document snapshot.
-- Test upgrade hooks against every supported 1.x layout; do not claim one minor
-  version can skip required migrations merely because its image starts.
+- Frontend auditing reports existing dependency advisories; a separate
+  reachability/remediation review remains necessary. Build-tool findings are not
+  automatically deployed-interface vulnerabilities.
+- Paperless 2.11.4 has published access-control and other upstream advisories.
+  Stable 1.3.2 retains that baseline as an explicitly requested staged-upgrade
+  checkpoint; it does not claim a clean security audit. Later patched
+  application updates remain necessary.
+- Populated end-to-end upgrades from every historical 1.x tag are not covered by
+  the current QEMU scenarios; legacy state source review and unit checks have
+  narrower scope.
 - Add the repository `ns8` topic: the connected GitHub installation returned
   HTTP 403 for repository-topic administration, so this remains a maintainer
   action. Verify forge logo/screenshot/metadata quality when updating NethForge.
@@ -112,7 +121,8 @@ Before 1.3, application settings and the signing key lived in the module
 environment. Upgrade discovery now migrates those originals without replacing
 file values, and restore stages legacy snapshot values before inherited Restic
 restore. Repeat migration is covered by regression tests. Full populated upgrade
-coverage for those older release images remains a stable-release requirement.
+coverage for those older release images remains follow-up validation; the
+1.3.2 evidence must not be represented as covering every historical tag.
 
 ## Proposed release count (not release approval)
 
@@ -175,8 +185,9 @@ Valkey/Redis newer majors requires separate persisted-data/queue tests.
 
 The three-release minimum describes the application path only. A database major
 migration or helper-service breaking change can require an additional module
-release. Choose exact helper tags and digests only after the baseline passes;
-none of these prospective dependency updates is enabled here.
+release. The 1.3.2 dependency refresh now selects PostgreSQL 15.20-bookworm, Redis
+7.2.16-bookworm, Gotenberg 8.40.0 and Tika 3.3.3.0-full. Database major upgrades
+and the other prospective major changes are not enabled at this checkpoint.
 
 ## Upgrade guard design requirements
 
