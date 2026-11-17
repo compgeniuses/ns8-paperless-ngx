@@ -1,11 +1,9 @@
 name: "Publish images"
-
 on:
   push:
-
+    branches-ignore: [paperless-release-assets]
 permissions:
   packages: write
-
 jobs:
   publish-images:
     if: github.run_number > 1
