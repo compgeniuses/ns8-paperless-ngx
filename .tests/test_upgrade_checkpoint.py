@@ -49,7 +49,7 @@ class UpgradeCheckpoints(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'dump failed'):
                 self.module.prepare_update()
         self.assertIn(('podman', 'unpause', 'paperless-server'), calls)
-        self.assertFalse((self.state / 'paperless-transition.json').exists())
+        self.assertFalse((self.state / 'upgrades/paperless-transition.json').exists())
 
     def test_successful_preparation_preserves_first_backup_and_original_timestamps(self):
         (self.state / 'paperless.pg_dump').write_bytes(b'original populated dump')
@@ -70,7 +70,7 @@ class UpgradeCheckpoints(unittest.TestCase):
 
     def test_fresh_install_marker_does_not_authorize_a_populated_legacy_restore(self):
         self.module.write_json('paperless-fresh.json', {'application_version': self.module.APP_VERSION})
-        with patch.object(self.module, 'wait_database'), patch.object(self.module, 'sql', side_effect=['documents_document', '5']):
+        with patch.object(self.module, 'wait_database'), patch.object(self.module, 'sql', return_value='5'):
             with self.assertRaisesRegex(RuntimeError, 'Upgrade blocked'):
                 self.module.preflight()
 

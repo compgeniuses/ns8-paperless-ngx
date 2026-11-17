@@ -2,6 +2,7 @@
 """Guard migrations before restart and before the container entrypoint runs."""
 import fcntl
 import http.client
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -26,12 +27,13 @@ def module_version(reference):
 
 
 def read_json(name):
-    path = STATE / name
+    path = STATE / 'upgrades' / name
     return json.loads(path.read_text()) if path.exists() else {}
 
 
 def write_json(name, value):
-    path = STATE / name
+    path = STATE / 'upgrades' / name
+    path.parent.mkdir(mode=0o700, exist_ok=True)
     temporary = path.with_name(path.name + f'.{os.getpid()}.tmp')
     with temporary.open('w') as stream:
         json.dump(value, stream, sort_keys=True)
@@ -81,6 +83,14 @@ def migration_fingerprint():
     return sql("SELECT md5(string_agg(app || '.' || name, ',' ORDER BY app, name)) FROM django_migrations")
 
 
+def file_hash(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def preflight(prepare=False):
     checkpoint = read_json('paperless-checkpoint.json')
     if (checkpoint.get('module_stage') == MODULE_STAGE
@@ -94,13 +104,17 @@ def preflight(prepare=False):
     if (transition.get('target_application') == APP_VERSION
             and valid_source(transition.get('source_image'))
             and transition.get('backup_complete') is True):
+        backup = STATE / 'upgrades/1.4.0/paperless.pg_dump'
+        if not backup.is_file() or file_hash(backup) != transition.get('backup_sha256'):
+            raise RuntimeError('Upgrade blocked: the original database backup is missing or changed')
         return 'transition'
     fresh = read_json('paperless-fresh.json')
     if fresh.get('application_version') == APP_VERSION:
         wait_database()
-        if not sql("SELECT COALESCE(to_regclass('documents_document')::text, '')"):
+        if fresh.get('startup_authorized') is True:
             return 'fresh'
-        if sql('SELECT count(*) FROM documents_document') == '0':
+        if sql("SELECT count(*) FROM pg_tables WHERE schemaname='public'") == '0':
+            write_json('paperless-fresh.json', {'application_version': APP_VERSION, 'startup_authorized': True})
             return 'fresh'
     if prepare and valid_source(os.environ.get('PREV_IMAGE_URL')):
         return 'source'
@@ -154,6 +168,7 @@ def prepare_update():
             'source_image': os.environ['PREV_IMAGE_URL'],
             'backup_complete': True,
             'backup_directory': 'upgrades/1.4.0',
+            'backup_sha256': file_hash(backup),
         })
     finally:
         if paused:
@@ -199,7 +214,7 @@ def main():
     with (STATE / '.paperless-upgrade.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if operation == 'init':
-            if not (STATE / 'paperless-fresh.json').exists():
+            if not (STATE / 'upgrades/paperless-fresh.json').exists():
                 write_json('paperless-fresh.json', {'application_version': APP_VERSION})
         elif operation == 'check':
             preflight()

@@ -29,7 +29,7 @@ def api(action, data):
 def state_hashes(module):
     return command('runagent', '-m', module, 'sh', '-c',
                    'cd "$AGENT_STATE_DIR" && sha256sum database.env secret_key.env paperless-ngx.env; '
-                   'if [ -d upgrades ]; then find upgrades -type f -exec sha256sum {} + | sort; fi')
+                   'if [ -d upgrades ]; then find upgrades -mindepth 2 -type f -exec sha256sum {} + | sort; fi')
 
 
 def main():

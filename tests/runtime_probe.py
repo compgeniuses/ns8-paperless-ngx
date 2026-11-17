@@ -22,7 +22,7 @@ def main():
         application = run(module, 'podman', 'exec', 'paperless-server', 'python3', '-c',
                           'from paperless.version import __full_version_str__; print(__full_version_str__)')
         assert application == '2.20.15', application
-        checkpoint = json.loads(run(module, 'cat', 'paperless-checkpoint.json'))
+        checkpoint = json.loads(run(module, 'cat', 'upgrades/paperless-checkpoint.json'))
         assert checkpoint['healthy'] is True and checkpoint['application_version'] == application
         assert checkpoint['module_stage'] == '1.4'
         assert run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', '--raw', 'GET', 'ns8-test:upgrade-proof') == MARKER
