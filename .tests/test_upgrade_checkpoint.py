@@ -90,3 +90,16 @@ class UpgradeCheckpoints(unittest.TestCase):
         })
         with self.assertRaisesRegex(RuntimeError, 'Upgrade blocked'):
             self.module.preflight()
+
+    def test_interrupted_backup_copy_cannot_leave_a_partial_checkpoint_dump(self):
+        source = self.state / 'source.dump'
+        target = self.state / 'checkpoint.dump'
+        source.write_bytes(b'complete database')
+        def fail_copy(original, temporary):
+            Path(temporary).write_bytes(b'partial')
+            raise OSError('simulated interrupted write')
+        with patch.object(self.module.shutil, 'copy2', fail_copy):
+            with self.assertRaises(OSError):
+                self.module.atomic_copy(source, target)
+        self.assertFalse(target.exists())
+        self.assertFalse(list(self.state.glob('checkpoint.dump.*.tmp')))
