@@ -3,17 +3,57 @@
 import hashlib
 import datetime
 import http.client
+from http.cookies import SimpleCookie
+from html.parser import HTMLParser
 import io
 import json
 import os
 from pathlib import Path
 import sys
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 import zipfile
 
 HOST = 'paperless.example.org'
 TITLE = 'NS8 upgrade preservation proof'
+
+
+def verify_browser_login():
+    cookies = SimpleCookie()
+    def exchange(method, path, data=None):
+        connection = http.client.HTTPConnection('127.0.0.1', 80, timeout=60)
+        headers = {'Host': HOST}
+        if cookies:
+            headers['Cookie'] = '; '.join(name + '=' + value.value for name, value in cookies.items())
+        if data is not None:
+            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        connection.request(method, path, body=data, headers=headers)
+        response = connection.getresponse()
+        payload = response.read()
+        for name, value in response.getheaders():
+            if name.lower() == 'set-cookie':
+                cookies.load(value)
+        status = response.status
+        connection.close()
+        return status, payload
+    class Inputs(HTMLParser):
+        def __init__(self):
+            super().__init__(); self.values = {}
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == 'input' and attrs.get('name'):
+                self.values[attrs['name']] = attrs.get('value', '')
+    status, html = exchange('GET', '/accounts/login/?next=/')
+    assert status == 200, f'Browser login form returned HTTP {status}'
+    parser = Inputs(); parser.feed(html.decode())
+    token = parser.values['csrfmiddlewaretoken']
+    username = 'login' if 'login' in parser.values else 'username'
+    status, _ = exchange('POST', '/accounts/login/?next=/', urlencode({
+        username: 'paperlessadmin', 'password': 'Test-only-password-123!',
+        'csrfmiddlewaretoken': token, 'next': '/'}))
+    assert status in (302, 303), f'Browser session login returned HTTP {status}'
+    status, _ = exchange('GET', '/api/documents/?page_size=1')
+    assert status == 200, f'Browser session cookie was not authenticated: HTTP {status}'
 
 
 def request(method, path, body=None, headers=None):
@@ -109,7 +149,7 @@ def inspect_document(document, kind, stage, auth):
                                           for value in document.get('custom_fields', [])),
                                          key=lambda value: value['field']))
     notes = json.loads(request('GET', f"/api/documents/{document['id']}/notes/", headers=auth))
-    snapshot['notes'] = sorted(note['note'] for note in notes)
+    snapshot['notes'] = sorted(({'note':note['note'],'format':note.get('format','plain')} for note in notes),key=lambda note:note['note'])
     snapshot.update(kind=kind, stage=stage, sha256=hashlib.sha256(original).hexdigest(), archive_sha256=hashlib.sha256(archive).hexdigest())
     return snapshot
 
@@ -122,36 +162,64 @@ def seed_metadata(document, auth):
     correspondent = create('correspondents', {'name': 'NS8 preservation correspondent'})
     document_type = create('document_types', {'name': 'NS8 preservation document type'})
     custom = create('custom_fields', {'name': 'NS8 preservation field', 'data_type': 'string'})
-    view = create('saved_views', {'name': 'NS8 preservation saved view',
+    user=json.loads(request('GET','/api/users/?username__iexact=paperlessadmin',headers=auth))['results'][0]
+    view = create('saved_views', {'name': 'NS8 preservation saved view', 'owner':user['id'],
                   'show_on_dashboard': True, 'show_in_sidebar': True,
                   'filter_rules': [{'rule_type': 20, 'value': 'note:preservation'}]})
+    if 'show_on_dashboard' not in view:
+        request('PATCH',f"/api/saved_views/{view['id']}/",json.dumps({'show_on_dashboard':True,'show_in_sidebar':True}),{**auth,'Content-Type':'application/json','Accept':'application/json; version=9'})
     payload = {'tags': [tag['id']], 'correspondent': correspondent['id'],
                'document_type': document_type['id'],
                'custom_fields': [{'field': custom['id'], 'value': 'NS8 custom value proof'}]}
     document = json.loads(request('PATCH', f"/api/documents/{document['id']}/", json.dumps(payload),
                                   {**auth, 'Content-Type': 'application/json'}))
-    request('POST', f"/api/documents/{document['id']}/notes/", json.dumps({'note': 'NS8 note preservation proof'}),
+    request('POST', f"/api/documents/{document['id']}/notes/", json.dumps({'note': 'NS8 note preservation proof **literal markers**', 'format':'plain'}),
             {**auth, 'Content-Type': 'application/json'})
     resources = [{'endpoint': endpoint, 'id': value['id'], 'name': value['name']}
                  for endpoint, value in [('tags', tag), ('correspondents', correspondent),
                                           ('document_types', document_type), ('custom_fields', custom)]]
-    return document, {'resources': resources, 'saved_view': {'id': view['id'], 'name': view['name']}}
+    metadata = {'resources': resources, 'document_id': document['id'],
+                'token_sha256':hashlib.sha256(auth['Authorization'].encode()).hexdigest(),
+                'saved_view': {'id': view['id'], 'name': view['name'], 'owner':user['id']}}
+    if 'parent' in tag:
+        parent=create('tags',{'name':'NS8 hierarchy parent'})
+        child=create('tags',{'name':'NS8 hierarchy child','parent':parent['id']})
+        assert child['parent']==parent['id']
+        metadata['tag_hierarchy']={'parent':parent['id'],'child':child['id']}
+    return document, metadata
 
 
 def verify_metadata(snapshot, auth):
+    assert hashlib.sha256(auth['Authorization'].encode()).hexdigest()==snapshot['token_sha256'], 'Original API token changed'
     for resource in snapshot['resources']:
         actual = json.loads(request('GET', f"/api/{resource['endpoint']}/{resource['id']}/", headers=auth))
         assert actual['name'] == resource['name'], resource
+    if snapshot.get('tag_hierarchy'):
+        hierarchy=snapshot['tag_hierarchy']
+        child=json.loads(request('GET',f"/api/tags/{hierarchy['child']}/",headers=auth))
+        assert child['parent']==hierarchy['parent'],'Tag hierarchy changed'
     view = json.loads(request('GET', f"/api/saved_views/{snapshot['saved_view']['id']}/", headers=auth))
+    if 'show_on_dashboard' not in view:
+        view=json.loads(request('GET',f"/api/saved_views/{snapshot['saved_view']['id']}/",headers={**auth,'Accept':'application/json; version=9'}))
     assert view['name'] == snapshot['saved_view']['name']
+    assert view['owner'] == snapshot['saved_view']['owner']
     assert view['show_on_dashboard'] is True and view['show_in_sidebar'] is True
     assert len(view['filter_rules']) == 1 and view['filter_rules'][0]['rule_type'] == 20
     # v3's explicit note-field rewrite is an upstream data migration.
     assert view['filter_rules'][0]['value'] in ('note:preservation', 'notes.note:preservation')
+    deadline = time.monotonic() + 120
+    while True:
+        results = json.loads(request('GET', '/api/documents/?query=' + quote(view['filter_rules'][0]['value']), headers=auth))['results']
+        if any(item['id'] == snapshot['document_id'] for item in results):
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Saved-view note search no longer finds the preserved document')
+        time.sleep(3)
 
 
 def main():
     operation, snapshot_path = sys.argv[1:]
+    verify_browser_login()
     token = json.loads(request('POST', '/api/token/', json.dumps({
         'username': 'paperlessadmin', 'password': 'Test-only-password-123!'
     }), {'Content-Type': 'application/json'}))['token']

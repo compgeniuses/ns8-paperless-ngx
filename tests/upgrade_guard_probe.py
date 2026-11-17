@@ -3,6 +3,9 @@
 import json
 import subprocess
 import sys
+import time
+from pathlib import Path
+from urllib.request import Request,urlopen
 
 
 def run(*args, check=True):
@@ -26,12 +29,31 @@ def update(module, image):
         'force': True, 'module_url': image, 'instances': [module]}))
 
 
+def wait_checkpoint(module, version):
+    # NS8 reports update-module complete before asynchronous systemd startup
+    # and ExecStartPost finish. Never change fixture data during migrations.
+    script = '''import json,os
+from pathlib import Path
+p=Path(os.environ['AGENT_STATE_DIR'])/'upgrades/paperless-checkpoint.json'
+print(p.read_text() if p.exists() else '{}')
+'''
+    deadline = time.monotonic() + 600
+    while time.monotonic() < deadline:
+        checkpoint = json.loads(run('runagent', '-m', module, 'python3', '-c', script).stdout)
+        if (checkpoint.get('healthy') and checkpoint.get('application_version') == version
+                and checkpoint.get('migration_fingerprint') == fingerprint(module)):
+            print(f'Healthy Paperless {version} checkpoint verified', flush=True)
+            return
+        time.sleep(3)
+    raise RuntimeError(f'Paperless {version} did not record a healthy checkpoint')
+
+
 def main():
     module, candidate = sys.argv[1:]
     original = fingerprint(module)
     update(module, candidate)
     guard = run('runagent', '-m', module, 'paperless-upgrade', 'check', check=False)
-    assert guard.returncode != 0 and 'stable module 1.3.2 first' in guard.stderr, guard.stderr
+    assert guard.returncode != 0 and 'stable module 1.4.0 first' in guard.stderr, guard.stderr
     # The core does not propagate a failed update hook. The service entrypoint
     # must independently reject startup before any upstream migration runs.
     restarted = run('runagent', '-m', module, 'systemctl', '--user', 'restart',
@@ -44,7 +66,39 @@ def main():
     run('api-cli', 'run', 'module/' + module + '/configure-module', '--data', json.dumps({
         'host': 'paperless.example.org', 'http2https': False, 'lets_encrypt': False}))
     assert fingerprint(module) == original, 'A rejected jump changed the database migrations'
-    print('Skipped 1.3.2 checkpoint and direct startup rejected; baseline restored without database migrations')
+    update(module, 'ghcr.io/compgeniuses/paperlessngx:1.4.0')
+    wait_checkpoint(module, '2.20.15')
+    def http(path,payload):
+        request=Request('http://127.0.0.1'+path,data=json.dumps(payload).encode(),headers={'Host':'paperless.example.org','Content-Type':'application/json',**http_auth})
+        with urlopen(request,timeout=60) as response:return json.load(response)
+    http_auth={}
+    token=http('/api/token/',{'username':'paperlessadmin','password':'Test-only-password-123!'})['token']
+    http_auth={'Authorization':'Token '+token}
+    parent=http('/api/tags/',{'name':'NS8 hierarchy parent'})
+    child=http('/api/tags/',{'name':'NS8 hierarchy child','parent':parent['id']})
+    assert child['parent']==parent['id']
+    metadata_path=Path('/tmp/paperless-proof-'+module+'.json.metadata.json')
+    metadata=json.loads(metadata_path.read_text())
+    metadata['tag_hierarchy']={'parent':parent['id'],'child':child['id']}
+    metadata_path.write_text(json.dumps(metadata))
+    source_schema = fingerprint(module)
+    sql = """import agent,subprocess,sys
+v=agent.read_envfile('database.env')
+subprocess.run(['podman','exec','paperless-pgsql','psql','-XAt','-U',v['POSTGRES_USER'],'-d',v['POSTGRES_DATABASE'],'-v','ON_ERROR_STOP=1','-c',sys.argv[1]],check=True)
+"""
+    def execute(statement):
+        return run('runagent','-m',module,'python3','-c',sql,statement)
+    # Change only the disposable fixture's encryption flag; the PDF remains
+    # plaintext. The v3 guard must reject it before any migration or restart.
+    execute("UPDATE documents_document SET storage_type='gpg' WHERE id=(SELECT min(id) FROM documents_document)")
+    try:
+        update(module, candidate)
+        encrypted = run('runagent','-m',module,'paperless-upgrade','prepare',check=False)
+        assert encrypted.returncode != 0 and 'decrypt all encrypted documents' in encrypted.stderr, encrypted.stderr
+    finally:
+        execute("UPDATE documents_document SET storage_type='unencrypted' WHERE id=(SELECT min(id) FROM documents_document)")
+    assert fingerprint(module) == source_schema, 'Rejected encrypted upgrade changed database migrations'
+    print('Skipped 1.4.0 checkpoint, direct startup and encrypted documents rejected; required 2.20.15 checkpoint retained')
 
 
 if __name__ == '__main__':

@@ -21,10 +21,24 @@ def main():
     elif operation == 'verify':
         application = run(module, 'podman', 'exec', 'paperless-server', 'python3', '-c',
                           'from paperless.version import __full_version_str__; print(__full_version_str__)')
-        assert application == '2.20.15', application
+        assert application == '3.5.0', application
         checkpoint = json.loads(run(module, 'cat', 'upgrades/paperless-checkpoint.json'))
         assert checkpoint['healthy'] is True and checkpoint['application_version'] == application
-        assert checkpoint['module_stage'] == '1.4'
+        assert checkpoint['module_stage'] == '2.0'
+        safety = """import agent,json
+from pathlib import Path
+options=agent.read_envfile('paperless-ngx.env')
+assert options['PAPERLESS_DBENGINE']=='postgresql'
+assert options['PAPERLESS_OCR_MODE']=='auto'
+assert options['PAPERLESS_ARCHIVE_FILE_GENERATION']=='always'
+assert options['PAPERLESS_CONSUMER_DELETE_DUPLICATES']=='true'
+p=Path('upgrades/paperless-transition.json')
+if p.exists() and json.loads(p.read_text()).get('target_application')=='3.5.0':
+    history=Path('upgrades/2.0.0/task-history-documents_paperlesstask.jsonl')
+    assert history.is_file() and len(history.read_text().splitlines())>=3
+print('v3 compatibility defaults and archived legacy task history verified')
+"""
+        print(run(module, 'python3', '-c', safety))
         assert run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', '--raw', 'GET', 'ns8-test:upgrade-proof') == MARKER
         assert run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', '--raw', 'LRANGE', 'ns8-test:pending-documents', '0', '-1') == MARKER
         info = run(module, 'podman', 'exec', 'paperless-redis', 'redis-cli', 'INFO', 'server')
