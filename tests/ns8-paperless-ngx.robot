@@ -15,7 +15,7 @@ Paperless responds through Traefik
 *** Test Cases ***
 Install Paperless
     IF    '${SCENARIO}' == 'update'
-        ${initial_image} =    Set Variable    ghcr.io/compgeniuses/paperlessngx:1.3.1
+        ${initial_image} =    Set Variable    ghcr.io/compgeniuses/paperlessngx:1.3.2
     ELSE
         ${initial_image} =    Set Variable    ${IMAGE_URL}
     END

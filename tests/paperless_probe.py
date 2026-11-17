@@ -3,17 +3,57 @@
 import hashlib
 import datetime
 import http.client
+from http.cookies import SimpleCookie
+from html.parser import HTMLParser
 import io
 import json
 import os
 from pathlib import Path
 import sys
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 import zipfile
 
 HOST = 'paperless.example.org'
 TITLE = 'NS8 upgrade preservation proof'
+
+
+def verify_browser_login():
+    cookies = SimpleCookie()
+    def exchange(method, path, data=None):
+        connection = http.client.HTTPConnection('127.0.0.1', 80, timeout=60)
+        headers = {'Host': HOST}
+        if cookies:
+            headers['Cookie'] = '; '.join(name + '=' + value.value for name, value in cookies.items())
+        if data is not None:
+            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        connection.request(method, path, body=data, headers=headers)
+        response = connection.getresponse()
+        payload = response.read()
+        for name, value in response.getheaders():
+            if name.lower() == 'set-cookie':
+                cookies.load(value)
+        status = response.status
+        connection.close()
+        return status, payload
+    class Inputs(HTMLParser):
+        def __init__(self):
+            super().__init__(); self.values = {}
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == 'input' and attrs.get('name'):
+                self.values[attrs['name']] = attrs.get('value', '')
+    status, html = exchange('GET', '/accounts/login/?next=/')
+    assert status == 200, f'Browser login form returned HTTP {status}'
+    parser = Inputs(); parser.feed(html.decode())
+    token = parser.values['csrfmiddlewaretoken']
+    username = 'login' if 'login' in parser.values else 'username'
+    status, _ = exchange('POST', '/accounts/login/?next=/', urlencode({
+        username: 'paperlessadmin', 'password': 'Test-only-password-123!',
+        'csrfmiddlewaretoken': token, 'next': '/'}))
+    assert status in (302, 303), f'Browser session login returned HTTP {status}'
+    status, _ = exchange('GET', '/api/documents/?page_size=1')
+    assert status == 200, f'Browser session cookie was not authenticated: HTTP {status}'
 
 
 def request(method, path, body=None, headers=None):
@@ -135,7 +175,8 @@ def seed_metadata(document, auth):
     resources = [{'endpoint': endpoint, 'id': value['id'], 'name': value['name']}
                  for endpoint, value in [('tags', tag), ('correspondents', correspondent),
                                           ('document_types', document_type), ('custom_fields', custom)]]
-    return document, {'resources': resources, 'saved_view': {'id': view['id'], 'name': view['name']}}
+    return document, {'resources': resources, 'document_id': document['id'],
+                      'saved_view': {'id': view['id'], 'name': view['name']}}
 
 
 def verify_metadata(snapshot, auth):
@@ -148,10 +189,19 @@ def verify_metadata(snapshot, auth):
     assert len(view['filter_rules']) == 1 and view['filter_rules'][0]['rule_type'] == 20
     # v3's explicit note-field rewrite is an upstream data migration.
     assert view['filter_rules'][0]['value'] in ('note:preservation', 'notes.note:preservation')
+    deadline = time.monotonic() + 120
+    while True:
+        results = json.loads(request('GET', '/api/documents/?query=' + quote(view['filter_rules'][0]['value']), headers=auth))['results']
+        if any(item['id'] == snapshot['document_id'] for item in results):
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Saved-view note search no longer finds the preserved document')
+        time.sleep(3)
 
 
 def main():
     operation, snapshot_path = sys.argv[1:]
+    verify_browser_login()
     token = json.loads(request('POST', '/api/token/', json.dumps({
         'username': 'paperlessadmin', 'password': 'Test-only-password-123!'
     }), {'Content-Type': 'application/json'}))['token']

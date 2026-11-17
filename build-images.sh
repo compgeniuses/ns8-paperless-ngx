@@ -14,7 +14,7 @@ images=()
 repobase="${REPOBASE:-ghcr.io/compgeniuses}"
 # Configure the image name
 reponame="paperlessngx"
-paperless_version="2.20.15"
+paperless_version="3.4.2"
 gotenberg_version="8.40.0"
 tika_version="3.3.3.0-full"
 # Create a new empty container image
@@ -42,7 +42,7 @@ buildah config --entrypoint=/ \
     --label="org.nethserver.tcp-ports-demand=1" \
     --label="org.nethserver.rootfull=0" \
     --label="org.nethserver.min-core=3.0.0" \
-    --label="org.nethserver.min-from=1.3.2" \
+    --label="org.nethserver.min-from=1.4.0" \
     --label="org.nethserver.images=docker.io/library/redis:7.2.16-bookworm docker.io/library/postgres:15.20-bookworm docker.io/paperlessngx/paperless-ngx:${paperless_version} docker.io/apache/tika:${tika_version} docker.io/gotenberg/gotenberg:${gotenberg_version}" \
     "${container}"
 # Commit the image

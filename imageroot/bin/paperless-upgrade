@@ -14,10 +14,11 @@ import time
 from urllib.parse import urlsplit
 
 import agent
+from paperless_v3 import DB_OPTIONS, check_cpu, migrate_options, review_fingerprint, review_requirements, verify_review
 
-MODULE_STAGE = '1.4'
-APP_VERSION = '2.20.15'
-MINIMUM_MODULE = (1, 3, 2)
+MODULE_STAGE = '2.0'
+APP_VERSION = '3.4.2'
+MINIMUM_MODULE = (1, 4, 0)
 STATE = Path(os.environ.get('AGENT_STATE_DIR', '.'))
 
 
@@ -76,7 +77,7 @@ def wait_database():
 def valid_source(reference):
     version = module_version(reference)
     return (bool(reference) and reference.rsplit(':', 1)[0] == 'ghcr.io/compgeniuses/paperlessngx'
-            and version is not None and version[0] == 1 and version >= MINIMUM_MODULE)
+            and version is not None and ((version[0] == 1 and version >= MINIMUM_MODULE) or version[0] == 2))
 
 
 def migration_fingerprint():
@@ -104,7 +105,69 @@ def atomic_copy(source, target):
             temporary.unlink()
 
 
+
+def options_for_review():
+    options = agent.read_envfile(str(STATE / 'paperless-ngx.env'))
+    db = agent.read_envfile(str(STATE / 'paperless-db.env'))
+    for key in DB_OPTIONS:
+        if key in db and key not in options:
+            options[key] = db[key]
+    return options
+
+
+def saved_queries():
+    related = sql("SELECT (SELECT count(*) FROM documents_note) + (SELECT count(*) FROM documents_customfieldinstance)")
+    if related == '0':
+        return []
+    return json.loads(sql("SELECT COALESCE(json_agg(value ORDER BY id), '[]'::json)::text FROM documents_savedviewfilterrule WHERE rule_type=20 AND value IS NOT NULL"))
+
+
+def validate_v3_source(options=None):
+    check_cpu()
+    if sql("SELECT count(*) FROM documents_document WHERE storage_type='gpg'") != '0':
+        raise RuntimeError('Upgrade blocked: decrypt all encrypted documents on Paperless 2.20.15 before moving to v3')
+    if int(sql('SELECT COALESCE(max(maximum_age), 0) FROM paperless_mail_mailrule')) > 32767:
+        raise RuntimeError('Upgrade blocked: review mail rules with maximum_age greater than 32767 before v3')
+    options = options_for_review() if options is None else options
+    if options.get('PAPERLESS_PASSPHRASE'):
+        raise RuntimeError('Upgrade blocked: remove the legacy passphrase setting after verifying document decryption')
+    queries = saved_queries()
+    fingerprint = verify_review(options, queries, read_json('paperless-v3-review.json'))
+    migrate_options(options)  # Validate conversions before any file is replaced.
+    return fingerprint
+
+
+def allowed_source_checkpoint(checkpoint):
+    if checkpoint.get('healthy') is not True:
+        return False
+    if checkpoint.get('module_stage') == '1.4' and checkpoint.get('application_version') == '2.20.15':
+        return True
+    try:
+        previous = tuple(int(value) for value in checkpoint.get('application_version', '').split('.'))
+        target = tuple(int(value) for value in APP_VERSION.split('.'))
+        return str(checkpoint.get('module_stage', '')).startswith('2.') and len(previous) == 3 and previous[0] == 3 and previous <= target
+    except ValueError:
+        return False
+
+
+def source_checkpoint():
+    checkpoint = read_json('paperless-checkpoint.json')
+    if (not allowed_source_checkpoint(checkpoint)
+            or not (valid_source(checkpoint.get('module_image')) or valid_source(os.environ.get('PREV_IMAGE_URL')))):
+        raise RuntimeError('Upgrade blocked: install stable module 1.4.0 first and verify the Paperless 2.20.15 checkpoint')
+    wait_database()
+    if checkpoint.get('migration_fingerprint') != migration_fingerprint():
+        raise RuntimeError('Upgrade blocked: the database does not match its healthy source checkpoint')
+    return checkpoint
+
+
+def configuration_fingerprint():
+    values = {name: agent.read_envfile(str(STATE / name)) for name in ['paperless-ngx.env', 'paperless-db.env']}
+    return hashlib.sha256(json.dumps(values, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
 def preflight(prepare=False):
+    check_cpu()
     checkpoint = read_json('paperless-checkpoint.json')
     if (checkpoint.get('module_stage') == MODULE_STAGE
             and checkpoint.get('application_version') == APP_VERSION
@@ -114,25 +177,83 @@ def preflight(prepare=False):
             raise RuntimeError('Upgrade blocked: the database no longer matches its recorded checkpoint')
         return 'checkpoint'
     transition = read_json('paperless-transition.json')
-    if (transition.get('target_application') == APP_VERSION
-            and valid_source(transition.get('source_image'))
-            and transition.get('backup_complete') is True):
-        backup = STATE / 'upgrades/1.4.0/paperless.pg_dump'
+    if transition.get('target_application') == APP_VERSION and transition.get('backup_complete') is True:
+        source = transition.get('source_checkpoint', {})
+        if not allowed_source_checkpoint(source):
+            raise RuntimeError('Upgrade blocked: the v3 transition has no verified 2.20.15 source')
+        backup = STATE / 'upgrades/2.0.0/paperless.pg_dump'
         if not backup.is_file() or file_hash(backup) != transition.get('backup_sha256'):
             raise RuntimeError('Upgrade blocked: the original database backup is missing or changed')
+        if configuration_fingerprint() != transition.get('target_configuration_fingerprint'):
+            raise RuntimeError('Upgrade blocked: configuration changed after v3 preparation; review before retrying')
+        wait_database()
+        if source.get('application_version') == '2.20.15' and migration_fingerprint() == source.get('migration_fingerprint'):
+            old_options = agent.read_envfile(str(STATE / 'upgrades/2.0.0/paperless-ngx.env'))
+            old_db = agent.read_envfile(str(STATE / 'upgrades/2.0.0/paperless-db.env'))
+            for key in DB_OPTIONS:
+                if key in old_db and key not in old_options:
+                    old_options[key] = old_db[key]
+            validate_v3_source(old_options)
         return 'transition'
     fresh = read_json('paperless-fresh.json')
     if fresh.get('application_version') == APP_VERSION:
         wait_database()
-        if fresh.get('startup_authorized') is True:
+        if fresh.get('startup_authorized') is True or sql("SELECT count(*) FROM pg_tables WHERE schemaname='public'") == '0':
+            if fresh.get('startup_authorized') is not True:
+                write_json('paperless-fresh.json', {'application_version': APP_VERSION, 'startup_authorized': True})
+            options = agent.read_envfile(str(STATE / 'paperless-ngx.env'))
+            changed = migrate_options(options, legacy=False)
+            if changed != options:
+                agent.write_envfile(str(STATE / 'paperless-ngx.env'), changed)
+                (STATE / 'paperless-ngx.env').chmod(0o600)
             return 'fresh'
-        if sql("SELECT count(*) FROM pg_tables WHERE schemaname='public'") == '0':
-            write_json('paperless-fresh.json', {'application_version': APP_VERSION, 'startup_authorized': True})
-            return 'fresh'
-    if prepare and valid_source(os.environ.get('PREV_IMAGE_URL')):
+    if prepare:
+        source = source_checkpoint()
+        if source.get('application_version') == '2.20.15':
+            validate_v3_source()
         return 'source'
-    raise RuntimeError('Upgrade blocked: install stable module 1.3.2 first; '
-                       'a successful checkpoint/backup is required before Paperless 2.20.15 starts')
+    raise RuntimeError('Upgrade blocked: install stable module 1.4.0 first; a prepared 2.20.15 checkpoint is required before v3 starts')
+
+
+def archive_table(table, path):
+    if path.exists() or not sql("SELECT COALESCE(to_regclass('" + table + "')::text, '')"):
+        return
+    db = agent.read_envfile(str(STATE / 'database.env'))
+    temporary = path.with_suffix('.tmp')
+    try:
+        with temporary.open('wb') as output:
+            result = subprocess.run(['podman', 'exec', 'paperless-pgsql', 'psql', '-XAt',
+                '-U', db['POSTGRES_USER'], '-d', db['POSTGRES_DATABASE'], '-v', 'ON_ERROR_STOP=1',
+                '-c', 'SELECT row_to_json(record)::text FROM ' + table + ' record ORDER BY id'],
+                stdout=output, stderr=subprocess.PIPE, timeout=3600)
+        if result.returncode:
+            raise RuntimeError('Upgrade blocked: legacy task history could not be archived')
+        temporary.chmod(0o600)
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def prepare_configuration(directory, legacy=True):
+    old_options = agent.read_envfile(str(STATE / 'paperless-ngx.env'))
+    old_db = agent.read_envfile(str(STATE / 'paperless-db.env'))
+    options = dict(old_options)
+    for key in DB_OPTIONS:
+        if key in old_db and key not in options:
+            options[key] = old_db[key]
+    changed = migrate_options(options, legacy=legacy)
+    db = {key: value for key, value in old_db.items() if key not in DB_OPTIONS}
+    db['PAPERLESS_DBENGINE'] = 'postgresql'
+    try:
+        agent.write_envfile(str(STATE / 'paperless-ngx.env'), changed)
+        agent.write_envfile(str(STATE / 'paperless-db.env'), db)
+        for name in ['paperless-ngx.env', 'paperless-db.env']:
+            (STATE / name).chmod(0o600)
+    except Exception:
+        for name in ['paperless-ngx.env', 'paperless-db.env']:
+            atomic_copy(directory / name, STATE / name)
+        raise
 
 
 def recover_freeze():
@@ -148,13 +269,31 @@ def recover_freeze():
     write_json('paperless-freeze.json', {})
 
 
+
+def recover_preparation():
+    pending = read_json('paperless-v3-preparation.json')
+    transition = read_json('paperless-transition.json')
+    if not pending or transition.get('target_application') == APP_VERSION:
+        return
+    source = source_checkpoint()
+    if source.get('migration_fingerprint') != pending.get('source_fingerprint'):
+        raise RuntimeError('Upgrade blocked: interrupted preparation does not match the source database')
+    directory = STATE / 'upgrades/2.0.0'
+    if file_hash(directory / 'paperless.pg_dump') != pending.get('backup_sha256'):
+        raise RuntimeError('Upgrade blocked: interrupted preparation backup is invalid')
+    for name in ['paperless-ngx.env', 'paperless-db.env']:
+        atomic_copy(directory / name, STATE / name)
+    (STATE / 'upgrades/paperless-v3-preparation.json').unlink()
+
+
 def prepare_update():
+    recover_preparation()
     recover_freeze()
     origin = preflight(prepare=True)
     if origin in ('checkpoint', 'transition', 'fresh'):
         return
     wait_database()
-    directory = STATE / 'upgrades' / '1.4.0'
+    directory = STATE / 'upgrades' / '2.0.0'
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     directory.chmod(0o700)
     paused = False
@@ -175,9 +314,9 @@ def prepare_update():
         backup = directory / 'paperless.pg_dump'
         if not backup.exists():
             atomic_copy(dump, backup)
-        # Paperless 2.17 changes created from timestamp to date. Preserve the
-        # exact original timestamps separately before the upstream migration.
-        dates = directory / 'original-created-timestamps.jsonl'
+        # The earlier 1.4.0 archive retains exact pre-2.17 timestamps. Also
+        # retain the pre-v3 calendar dates with this database checkpoint.
+        dates = directory / 'pre-v3-document-created-dates.jsonl'
         if not dates.exists():
             data = sql("SELECT json_build_object('id', id, 'created', created)::text FROM documents_document ORDER BY id")
             temporary = dates.with_suffix('.tmp')
@@ -190,13 +329,29 @@ def prepare_update():
             target = directory / name
             if source.is_file() and not target.exists():
                 atomic_copy(source, target)
-        write_json('paperless-transition.json', {
-            'target_application': APP_VERSION,
-            'source_image': os.environ['PREV_IMAGE_URL'],
-            'backup_complete': True,
-            'backup_directory': 'upgrades/1.4.0',
+        for table in ['documents_paperlesstask', 'django_celery_results_taskresult']:
+            archive_table(table, directory / ('task-history-' + table + '.jsonl'))
+        checkpoint = source_checkpoint()
+        write_json('paperless-v3-preparation.json', {
+            'source_fingerprint': checkpoint['migration_fingerprint'],
             'backup_sha256': file_hash(backup),
         })
+        try:
+            prepare_configuration(directory, legacy=checkpoint['application_version'] == '2.20.15')
+            write_json('paperless-transition.json', {
+                'target_application': APP_VERSION,
+                'source_image': checkpoint.get('module_image', os.environ.get('PREV_IMAGE_URL', '')),
+                'source_checkpoint': checkpoint,
+                'target_configuration_fingerprint': configuration_fingerprint(),
+                'backup_complete': True,
+                'backup_directory': 'upgrades/2.0.0',
+                'backup_sha256': file_hash(backup),
+            })
+        except Exception:
+            for name in ['paperless-ngx.env', 'paperless-db.env']:
+                atomic_copy(directory / name, STATE / name)
+            raise
+
     finally:
         if paused:
             run('podman', 'unpause', 'paperless-server')
@@ -244,6 +399,17 @@ def main():
         if operation == 'init':
             if not (STATE / 'upgrades/paperless-fresh.json').exists():
                 write_json('paperless-fresh.json', {'application_version': APP_VERSION})
+        elif operation in ('review', 'acknowledge'):
+            source_checkpoint()
+            options = options_for_review()
+            queries = saved_queries()
+            fingerprint = review_fingerprint(options, queries)
+            required = review_requirements(options, queries)
+            if operation == 'acknowledge':
+                if len(sys.argv) < 3 or sys.argv[2] != fingerprint or not set(required) <= set(sys.argv[3:]):
+                    raise RuntimeError('Review acknowledgement does not match the current configuration and required categories')
+                write_json('paperless-v3-review.json', {'fingerprint': fingerprint, 'acknowledged': sorted(set(sys.argv[3:]))})
+            print(json.dumps({'fingerprint': fingerprint, 'required_categories': required, 'acknowledged': operation == 'acknowledge'}))
         elif operation == 'check':
             preflight()
         elif operation == 'prepare':
