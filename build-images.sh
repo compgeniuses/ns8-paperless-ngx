@@ -14,7 +14,7 @@ images=()
 repobase="${REPOBASE:-ghcr.io/compgeniuses}"
 # Configure the image name
 reponame="paperlessngx"
-paperless_version="3.4.2"
+paperless_version="3.5.0"
 gotenberg_version="8.40.0"
 tika_version="3.3.3.0-full"
 # Create a new empty container image

@@ -80,3 +80,19 @@ class V3Configuration(unittest.TestCase):
 
     def test_explicit_saved_search_fields_do_not_require_unqualified_query_review(self):
         self.assertEqual(v3.review_requirements({},['note:preservation','custom_field:"NS8 proof"']),[])
+
+    def test_shared_view_visibility_change_requires_explicit_review(self):
+        shared=[{'id':7,'dashboard':True,'sidebar':True}]
+        self.assertIn('shared_saved_views',v3.review_requirements({},[],shared))
+        with self.assertRaisesRegex(RuntimeError,'shared_saved_views'):
+            v3.verify_review({},[],{},shared)
+        review={'fingerprint':v3.review_fingerprint({},[],shared),'acknowledged':['shared_saved_views']}
+        v3.verify_review({},[],review,shared)
+        with self.assertRaises(RuntimeError):v3.verify_review({},[],review,[{'id':8,'dashboard':True,'sidebar':True}])
+
+    def test_reserved_ocr_output_arguments_are_blocked_before_they_are_ignored(self):
+        for key in ['sidecar','output_file','input_file_or_options']:
+            with self.assertRaisesRegex(RuntimeError,'reserved OCR'):
+                v3.migrate_options({'PAPERLESS_OCR_USER_ARGS':json.dumps({key:'/tmp/example'})})
+        original={'PAPERLESS_OCR_USER_ARGS':'{"optimize": 0}'}
+        self.assertEqual(v3.migrate_options(original)['PAPERLESS_OCR_USER_ARGS'],original['PAPERLESS_OCR_USER_ARGS'])

@@ -21,7 +21,7 @@ def main():
     elif operation == 'verify':
         application = run(module, 'podman', 'exec', 'paperless-server', 'python3', '-c',
                           'from paperless.version import __full_version_str__; print(__full_version_str__)')
-        assert application == '3.4.2', application
+        assert application == '3.5.0', application
         checkpoint = json.loads(run(module, 'cat', 'upgrades/paperless-checkpoint.json'))
         assert checkpoint['healthy'] is True and checkpoint['application_version'] == application
         assert checkpoint['module_stage'] == '2.0'
@@ -33,7 +33,7 @@ assert options['PAPERLESS_OCR_MODE']=='auto'
 assert options['PAPERLESS_ARCHIVE_FILE_GENERATION']=='always'
 assert options['PAPERLESS_CONSUMER_DELETE_DUPLICATES']=='true'
 p=Path('upgrades/paperless-transition.json')
-if p.exists() and json.loads(p.read_text()).get('target_application')=='3.4.2':
+if p.exists() and json.loads(p.read_text()).get('target_application')=='3.5.0':
     history=Path('upgrades/2.0.0/task-history-documents_paperlesstask.jsonl')
     assert history.is_file() and len(history.read_text().splitlines())>=3
 print('v3 compatibility defaults and archived legacy task history verified')

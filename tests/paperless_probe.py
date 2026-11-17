@@ -149,7 +149,7 @@ def inspect_document(document, kind, stage, auth):
                                           for value in document.get('custom_fields', [])),
                                          key=lambda value: value['field']))
     notes = json.loads(request('GET', f"/api/documents/{document['id']}/notes/", headers=auth))
-    snapshot['notes'] = sorted(note['note'] for note in notes)
+    snapshot['notes'] = sorted(({'note':note['note'],'format':note.get('format','plain')} for note in notes),key=lambda note:note['note'])
     snapshot.update(kind=kind, stage=stage, sha256=hashlib.sha256(original).hexdigest(), archive_sha256=hashlib.sha256(archive).hexdigest())
     return snapshot
 
@@ -162,29 +162,47 @@ def seed_metadata(document, auth):
     correspondent = create('correspondents', {'name': 'NS8 preservation correspondent'})
     document_type = create('document_types', {'name': 'NS8 preservation document type'})
     custom = create('custom_fields', {'name': 'NS8 preservation field', 'data_type': 'string'})
-    view = create('saved_views', {'name': 'NS8 preservation saved view',
+    user=json.loads(request('GET','/api/users/?username__iexact=paperlessadmin',headers=auth))['results'][0]
+    view = create('saved_views', {'name': 'NS8 preservation saved view', 'owner':user['id'],
                   'show_on_dashboard': True, 'show_in_sidebar': True,
                   'filter_rules': [{'rule_type': 20, 'value': 'note:preservation'}]})
+    if 'show_on_dashboard' not in view:
+        request('PATCH',f"/api/saved_views/{view['id']}/",json.dumps({'show_on_dashboard':True,'show_in_sidebar':True}),{**auth,'Content-Type':'application/json','Accept':'application/json; version=9'})
     payload = {'tags': [tag['id']], 'correspondent': correspondent['id'],
                'document_type': document_type['id'],
                'custom_fields': [{'field': custom['id'], 'value': 'NS8 custom value proof'}]}
     document = json.loads(request('PATCH', f"/api/documents/{document['id']}/", json.dumps(payload),
                                   {**auth, 'Content-Type': 'application/json'}))
-    request('POST', f"/api/documents/{document['id']}/notes/", json.dumps({'note': 'NS8 note preservation proof'}),
+    request('POST', f"/api/documents/{document['id']}/notes/", json.dumps({'note': 'NS8 note preservation proof **literal markers**', 'format':'plain'}),
             {**auth, 'Content-Type': 'application/json'})
     resources = [{'endpoint': endpoint, 'id': value['id'], 'name': value['name']}
                  for endpoint, value in [('tags', tag), ('correspondents', correspondent),
                                           ('document_types', document_type), ('custom_fields', custom)]]
-    return document, {'resources': resources, 'document_id': document['id'],
-                      'saved_view': {'id': view['id'], 'name': view['name']}}
+    metadata = {'resources': resources, 'document_id': document['id'],
+                'token_sha256':hashlib.sha256(auth['Authorization'].encode()).hexdigest(),
+                'saved_view': {'id': view['id'], 'name': view['name'], 'owner':user['id']}}
+    if 'parent' in tag:
+        parent=create('tags',{'name':'NS8 hierarchy parent'})
+        child=create('tags',{'name':'NS8 hierarchy child','parent':parent['id']})
+        assert child['parent']==parent['id']
+        metadata['tag_hierarchy']={'parent':parent['id'],'child':child['id']}
+    return document, metadata
 
 
 def verify_metadata(snapshot, auth):
+    assert hashlib.sha256(auth['Authorization'].encode()).hexdigest()==snapshot['token_sha256'], 'Original API token changed'
     for resource in snapshot['resources']:
         actual = json.loads(request('GET', f"/api/{resource['endpoint']}/{resource['id']}/", headers=auth))
         assert actual['name'] == resource['name'], resource
+    if snapshot.get('tag_hierarchy'):
+        hierarchy=snapshot['tag_hierarchy']
+        child=json.loads(request('GET',f"/api/tags/{hierarchy['child']}/",headers=auth))
+        assert child['parent']==hierarchy['parent'],'Tag hierarchy changed'
     view = json.loads(request('GET', f"/api/saved_views/{snapshot['saved_view']['id']}/", headers=auth))
+    if 'show_on_dashboard' not in view:
+        view=json.loads(request('GET',f"/api/saved_views/{snapshot['saved_view']['id']}/",headers={**auth,'Accept':'application/json; version=9'}))
     assert view['name'] == snapshot['saved_view']['name']
+    assert view['owner'] == snapshot['saved_view']['owner']
     assert view['show_on_dashboard'] is True and view['show_in_sidebar'] is True
     assert len(view['filter_rules']) == 1 and view['filter_rules'][0]['rule_type'] == 20
     # v3's explicit note-field rewrite is an upstream data migration.

@@ -26,6 +26,9 @@ Install Paperless
     Set Suite Variable    ${module_id}    ${result}[module_id]
 
 Configure Paperless
+    ${rc} =    Execute Command    runagent -m ${module_id} python3 -c 'import agent; agent.set_env("NS8_PAPERLESS_UPGRADE_HEALTH_TIMEOUT", "180"); agent.dump_env()'
+    ...    return_rc=True    return_stdout=False
+    Should Be Equal As Integers    ${rc}    0
     ${rc} =    Execute Command    api-cli run module/${module_id}/configure-module --data '{"host":"${APP_HOST}","http2https":false,"lets_encrypt":false,"PAPERLESS_ADMIN_PASSWORD":"Test-only-password-123!","PAPERLESS_TIME_ZONE":"UTC"}'
     ...    return_rc=True    return_stdout=False
     Should Be Equal As Integers    ${rc}    0

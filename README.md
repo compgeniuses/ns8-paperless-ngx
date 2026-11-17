@@ -1,6 +1,6 @@
 # Paperless-ngx for NethServer 8
 
-> **Module 2.0.0 / Paperless 3.4.2:** existing installations must follow
+> **Module 2.0.0 / Paperless 3.5.0:** existing installations must follow
 > **1.3.1 → 1.3.2 → 1.4.0 → 2.0.0**. Module 1.4.0 provides the mandatory
 > Paperless 2.20.15 checkpoint. Read the [2.0.0 release notes](docs/RELEASE-2.0.0.md)
 > and [administrator review](docs/V3-ADMIN-REVIEW.md) before upgrading. Back up

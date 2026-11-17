@@ -1,6 +1,6 @@
 # Paperless-ngx module 2.0.0
 
-Upgrade to **Paperless 3.4.2**, the current verified stable upstream release, from
+Upgrade to **Paperless 3.5.0**, the current verified stable upstream release, from
 the required **Paperless 2.20.15** checkpoint in module **1.4.0**.
 
 This is a major module release because upstream changes search, task history,
@@ -25,7 +25,7 @@ behavior changes below are documented explicitly.
 
 | Component | Version |
 | --- | --- |
-| Paperless-ngx | **3.4.2** |
+| Paperless-ngx | **3.5.0** |
 | PostgreSQL | **15.20-bookworm** |
 | Redis | **7.2.16-bookworm** |
 | Gotenberg | **8.40.0** |
@@ -77,8 +77,15 @@ database credentials and signing keys are retained.
 - **Custom ignore patterns:** review v3's regex/additive-default behavior.
 - **Saved searches:** review ambiguous unqualified searches when notes or custom
   fields exist; their implicit search scope changes in v3.
+- **Shared saved-view visibility:** ownerless views with global dashboard/sidebar
+  flags require review. Upstream moves visibility into per-user preferences;
+  owned-view preferences migrate automatically, while shared/global choices may
+  need explicit per-user reconfiguration.
 - **OIDC:** specify the intended token authentication method or review the provider
   configuration before proceeding.
+- **OCR user arguments:** remove reserved input/output arguments (`sidecar`,
+  `output_file`, `input_file_or_options`) before 3.5. The guard checks both
+  environment and database configuration instead of silently ignoring them.
 
 Review acknowledgements are bound to a fingerprint of the actual configuration
 and relevant saved queries. Changes invalidate the previous acknowledgement.
@@ -97,6 +104,13 @@ See [the administrator review procedure](V3-ADMIN-REVIEW.md).
   database backup so the historical records remain recoverable.
 - **Barcode scanning:** zxing-cpp replaces pyzbar; the obsolete backend setting
   is removed.
+- **API:** v3 supports API versions 9 and 10. Older versioned clients must be
+  updated. Unversioned clients use version 10; saved-view visibility moved to
+  per-user settings, with the version-9 compatibility interface retained.
+- **Paperless 3.5:** bulk operations use asynchronous hand-off, manual workflow
+  triggers are available, and notes support Markdown. Existing plain-text notes
+  retain their plain format; tag parent relationships are preserved while the
+  internal tree implementation changes.
 - **Document-created dates:** the earlier 1.4.0 checkpoint already performs the
   timestamp-to-date migration. Its exact original timestamp archive is retained
   through this upgrade and backup/restore.
@@ -108,7 +122,8 @@ See [the administrator review procedure](V3-ADMIN-REVIEW.md).
 - Negative checks reject skipped checkpoints, direct startup and encrypted
   documents before migrations.
 - Fixtures cover PDF, DOCX and email ingestion, original/archive bytes, calendar
-  dates, tags, correspondents, document types, custom fields, notes and saved views.
+  dates, tag hierarchies, correspondents, document types, custom fields, plain-note
+  format and saved views. The original API token is checked for preservation.
 - Authentication checks exercise both API tokens and browser-form session login
   through Traefik, including cookies and CSRF tokens.
 - Both OS roles perform a full NS8/Restic backup, delete the disposable source
@@ -125,7 +140,7 @@ review; this module release is not described as a clean frontend security audit.
 ## Production update procedure
 
 1. Verify module **1.4.0** and its Paperless **2.20.15** checkpoint.
-2. Read the upstream [v3 migration guide](https://github.com/paperless-ngx/paperless-ngx/blob/v3.4.2/docs/migration-v3.md)
+2. Read the upstream [v3 migration guide](https://github.com/paperless-ngx/paperless-ngx/blob/v3.5.0/docs/migration-v3.md)
    and resolve applicable review conditions above.
 3. Quiesce ingestion, take and verify a full backup, reserve free storage and
    schedule a maintenance window.

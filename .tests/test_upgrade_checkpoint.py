@@ -44,17 +44,17 @@ class UpgradeCheckpoints(unittest.TestCase):
         self.assertFalse(self.module.allowed_source_checkpoint(source))
 
     def test_later_v3_data_cannot_be_downgraded(self):
-        source = {'module_stage': '2.1', 'application_version': '3.5.0', 'healthy': True}
+        source = {'module_stage': '2.1', 'application_version': '3.6.0', 'healthy': True}
         self.assertFalse(self.module.allowed_source_checkpoint(source))
 
     def test_checkpoint_rejects_a_mismatched_database_schema(self):
-        self.module.write_json('paperless-checkpoint.json', {'module_stage': '2.0', 'application_version': '3.4.2', 'healthy': True, 'migration_fingerprint': 'original'})
+        self.module.write_json('paperless-checkpoint.json', {'module_stage': '2.0', 'application_version': '3.5.0', 'healthy': True, 'migration_fingerprint': 'original'})
         with patch.object(self.module, 'wait_database'), patch.object(self.module, 'migration_fingerprint', return_value='changed'):
             with self.assertRaisesRegex(RuntimeError, 'database no longer matches'):
                 self.module.preflight()
 
     def test_transition_requires_the_original_backup(self):
-        self.module.write_json('paperless-transition.json', {'target_application': '3.4.2', 'source_checkpoint': self.source(), 'backup_complete': True})
+        self.module.write_json('paperless-transition.json', {'target_application': '3.5.0', 'source_checkpoint': self.source(), 'backup_complete': True})
         with self.assertRaisesRegex(RuntimeError, 'backup is missing or changed'):
             self.module.preflight()
 
@@ -62,7 +62,7 @@ class UpgradeCheckpoints(unittest.TestCase):
         directory = self.state / 'upgrades/2.0.0'
         directory.mkdir(parents=True)
         (directory / 'paperless.pg_dump').write_bytes(b'complete')
-        self.module.write_json('paperless-transition.json', {'target_application': '3.4.2', 'source_checkpoint': self.source(), 'backup_complete': True, 'backup_sha256': hashlib.sha256(b'complete').hexdigest(), 'target_configuration_fingerprint': 'original'})
+        self.module.write_json('paperless-transition.json', {'target_application': '3.5.0', 'source_checkpoint': self.source(), 'backup_complete': True, 'backup_sha256': hashlib.sha256(b'complete').hexdigest(), 'target_configuration_fingerprint': 'original'})
         with patch.object(self.module, 'configuration_fingerprint', return_value='changed'):
             with self.assertRaisesRegex(RuntimeError, 'configuration changed'):
                 self.module.preflight()
@@ -107,7 +107,7 @@ class UpgradeCheckpoints(unittest.TestCase):
         self.assertFalse(list(self.state.glob('target.*.tmp')))
 
     def test_own_interrupted_freeze_is_recovered(self):
-        self.module.write_json('paperless-freeze.json', {'target_application': '3.4.2'})
+        self.module.write_json('paperless-freeze.json', {'target_application': '3.5.0'})
         calls=[]
         with patch.object(self.module, 'run', side_effect=lambda *args, **kw: calls.append(args) or 'true'):
             self.module.recover_freeze()
@@ -127,7 +127,7 @@ class UpgradeCheckpoints(unittest.TestCase):
         self.assertFalse(list(self.state.iterdir()))
 
     def test_fresh_marker_cannot_authorize_an_existing_application_schema(self):
-        self.module.write_json('paperless-fresh.json', {'application_version': '3.4.2'})
+        self.module.write_json('paperless-fresh.json', {'application_version': '3.5.0'})
         with patch.object(self.module, 'wait_database'), patch.object(self.module, 'sql', return_value='20'):
             with self.assertRaisesRegex(RuntimeError, 'stable module 1.4.0'):
                 self.module.preflight()

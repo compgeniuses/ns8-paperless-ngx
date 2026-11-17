@@ -28,7 +28,7 @@ def check_cpu(machine=None, cpuinfo=None):
                            'migrate to supported hardware before upgrading')
 
 
-def review_requirements(options, queries):
+def review_requirements(options, queries, shared_views=None):
     requirements = []
     if any(options.get(key, '').strip() for key in (
             'PAPERLESS_PRE_CONSUME_SCRIPT', 'PAPERLESS_POST_CONSUME_SCRIPT')):
@@ -43,18 +43,20 @@ def review_requirements(options, queries):
     explicit = re.compile(r'[\w.]+:(?:"[^"\n]*"|[^\s]+)')
     if any(not explicit.fullmatch(query) for query in queries):
         requirements.append('saved_searches')
+    if shared_views:
+        requirements.append('shared_saved_views')
     return sorted(requirements)
 
 
-def review_fingerprint(options, queries):
-    value = json.dumps({'options': options, 'queries': sorted(queries)}, sort_keys=True,
+def review_fingerprint(options, queries, shared_views=None):
+    value = json.dumps({'options': options, 'queries': sorted(queries), 'shared_views': shared_views or []}, sort_keys=True,
                        separators=(',', ':')).encode()
     return hashlib.sha256(value).hexdigest()
 
 
-def verify_review(options, queries, review):
-    required = review_requirements(options, queries)
-    fingerprint = review_fingerprint(options, queries)
+def verify_review(options, queries, review, shared_views=None):
+    required = review_requirements(options, queries, shared_views)
+    fingerprint = review_fingerprint(options, queries, shared_views)
     if required and (review.get('fingerprint') != fingerprint
                      or not set(required) <= set(review.get('acknowledged', []))):
         raise RuntimeError('Upgrade blocked: review v3 compatibility for ' + ', '.join(required)
@@ -62,8 +64,17 @@ def verify_review(options, queries, review):
     return fingerprint
 
 
+def validate_ocr_arguments(value):
+    arguments = json.loads(value) if isinstance(value, str) and value else (value or {})
+    if not isinstance(arguments, dict):
+        raise RuntimeError('Upgrade blocked: OCR user arguments must be a JSON object')
+    if set(arguments) & {'input_file_or_options', 'output_file', 'sidecar'}:
+        raise RuntimeError('Upgrade blocked: remove reserved OCR input/output arguments before Paperless 3.5')
+
+
 def migrate_options(original, legacy=True):
     options = dict(original)
+    validate_ocr_arguments(options.get('PAPERLESS_OCR_USER_ARGS'))
     if options.get('PAPERLESS_DBENGINE', 'postgresql') not in ('postgres', 'postgresql'):
         raise RuntimeError('Upgrade blocked: this module requires its PostgreSQL database')
     options['PAPERLESS_DBENGINE'] = 'postgresql'

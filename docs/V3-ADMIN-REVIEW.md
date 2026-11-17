@@ -21,6 +21,8 @@ checkpoint/backup files to bypass it.
   remain. Do not rotate the original application signing key.
 - Review and explicitly adjust mail-rule maximum ages above 32767; the module
   does not silently truncate those values.
+- Remove reserved OCR input/output arguments from environment or application
+  configuration before 3.5; these are not bypassed by an acknowledgement.
 
 These conditions cannot be bypassed by a review acknowledgement.
 
@@ -37,6 +39,15 @@ does not remove v3's built-in ignores.
 Change saved searches that depended on implicit note/custom-field matches to
 explicit field queries. Upstream migrates explicit old prefixes automatically;
 ambiguous unqualified rules require review.
+
+Review ownerless shared saved views that have global dashboard/sidebar flags.
+Upstream migrates owned-view visibility to the owner's per-user settings, but
+global shared-view choices are no longer global flags. Assign appropriate
+ownership or plan each user's visibility preferences before acknowledging this
+change. The guard does not silently alter view ownership or grant permissions.
+
+Update API integrations to supported versions 9 or 10. Version 9 retains the
+legacy saved-view visibility interface; the unversioned API defaults to 10.
 
 For OIDC applications, configure the intended `token_auth_method` in each
 provider application's settings. Preserve an explicitly configured proxy count
@@ -63,7 +74,8 @@ runagent -m paperlessngx1 paperless-upgrade acknowledge FINGERPRINT consume_scri
 ```
 
 Use the actual fingerprint and returned category names; `oidc` is another
-possible category. The helper rejects an incomplete acknowledgement or an old
+possible category; `shared_saved_views` covers global shared-view visibility.
+The helper rejects an incomplete acknowledgement or an old
 fingerprint. A later change to the configuration or relevant queries invalidates
 the acknowledgement.
 

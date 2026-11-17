@@ -3,6 +3,8 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
+from urllib.request import Request,urlopen
 
 
 def run(*args, check=True):
@@ -45,6 +47,19 @@ def main():
         'host': 'paperless.example.org', 'http2https': False, 'lets_encrypt': False}))
     assert fingerprint(module) == original, 'A rejected jump changed the database migrations'
     update(module, 'ghcr.io/compgeniuses/paperlessngx:1.4.0')
+    def http(path,payload):
+        request=Request('http://127.0.0.1'+path,data=json.dumps(payload).encode(),headers={'Host':'paperless.example.org','Content-Type':'application/json',**http_auth})
+        with urlopen(request,timeout=60) as response:return json.load(response)
+    http_auth={}
+    token=http('/api/token/',{'username':'paperlessadmin','password':'Test-only-password-123!'})['token']
+    http_auth={'Authorization':'Token '+token}
+    parent=http('/api/tags/',{'name':'NS8 hierarchy parent'})
+    child=http('/api/tags/',{'name':'NS8 hierarchy child','parent':parent['id']})
+    assert child['parent']==parent['id']
+    metadata_path=Path('/tmp/paperless-proof-'+module+'.json.metadata.json')
+    metadata=json.loads(metadata_path.read_text())
+    metadata['tag_hierarchy']={'parent':parent['id'],'child':child['id']}
+    metadata_path.write_text(json.dumps(metadata))
     source_schema = fingerprint(module)
     sql = """import agent,subprocess,sys
 v=agent.read_envfile('database.env')

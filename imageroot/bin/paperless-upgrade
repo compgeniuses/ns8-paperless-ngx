@@ -14,10 +14,10 @@ import time
 from urllib.parse import urlsplit
 
 import agent
-from paperless_v3 import DB_OPTIONS, check_cpu, migrate_options, review_fingerprint, review_requirements, verify_review
+from paperless_v3 import DB_OPTIONS, check_cpu, migrate_options, review_fingerprint, review_requirements, verify_review, validate_ocr_arguments
 
 MODULE_STAGE = '2.0'
-APP_VERSION = '3.4.2'
+APP_VERSION = '3.5.0'
 MINIMUM_MODULE = (1, 4, 0)
 STATE = Path(os.environ.get('AGENT_STATE_DIR', '.'))
 
@@ -122,6 +122,10 @@ def saved_queries():
     return json.loads(sql("SELECT COALESCE(json_agg(value ORDER BY id), '[]'::json)::text FROM documents_savedviewfilterrule WHERE rule_type=20 AND value IS NOT NULL"))
 
 
+def shared_saved_views():
+    return json.loads(sql("SELECT COALESCE(json_agg(json_build_object('id', id, 'dashboard', show_on_dashboard, 'sidebar', show_in_sidebar) ORDER BY id), '[]'::json)::text FROM documents_savedview WHERE owner_id IS NULL AND (show_on_dashboard OR show_in_sidebar)"))
+
+
 def validate_v3_source(options=None):
     check_cpu()
     if sql("SELECT count(*) FROM documents_document WHERE storage_type='gpg'") != '0':
@@ -132,7 +136,10 @@ def validate_v3_source(options=None):
     if options.get('PAPERLESS_PASSPHRASE'):
         raise RuntimeError('Upgrade blocked: remove the legacy passphrase setting after verifying document decryption')
     queries = saved_queries()
-    fingerprint = verify_review(options, queries, read_json('paperless-v3-review.json'))
+    fingerprint = verify_review(options, queries, read_json('paperless-v3-review.json'), shared_saved_views())
+    arguments = json.loads(sql("SELECT COALESCE(json_agg(user_args), '[]'::json)::text FROM paperless_applicationconfiguration WHERE user_args IS NOT NULL"))
+    for value in arguments:
+        validate_ocr_arguments(value)
     migrate_options(options)  # Validate conversions before any file is replaced.
     return fingerprint
 
@@ -363,7 +370,7 @@ def mark_ready():
     options = agent.read_envfile(str(STATE / 'paperless-ngx.env'))
     host = urlsplit(options['PAPERLESS_URL']).hostname
     port = int(os.environ['TCP_PORT'])
-    deadline = time.monotonic() + int(os.environ.get('PAPERLESS_UPGRADE_HEALTH_TIMEOUT', '1800'))
+    deadline = time.monotonic() + int(os.environ.get('NS8_PAPERLESS_UPGRADE_HEALTH_TIMEOUT', os.environ.get('PAPERLESS_UPGRADE_HEALTH_TIMEOUT', '1800')))
     while True:
         try:
             actual = run('podman', 'exec', 'paperless-server', 'python3', '-c',
@@ -403,8 +410,9 @@ def main():
             source_checkpoint()
             options = options_for_review()
             queries = saved_queries()
-            fingerprint = review_fingerprint(options, queries)
-            required = review_requirements(options, queries)
+            shared = shared_saved_views()
+            fingerprint = review_fingerprint(options, queries, shared)
+            required = review_requirements(options, queries, shared)
             if operation == 'acknowledge':
                 if len(sys.argv) < 3 or sys.argv[2] != fingerprint or not set(required) <= set(sys.argv[3:]):
                     raise RuntimeError('Review acknowledgement does not match the current configuration and required categories')
