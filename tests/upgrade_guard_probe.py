@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.request import Request,urlopen
 
@@ -28,6 +29,25 @@ def update(module, image):
         'force': True, 'module_url': image, 'instances': [module]}))
 
 
+def wait_checkpoint(module, version):
+    # NS8 reports update-module complete before asynchronous systemd startup
+    # and ExecStartPost finish. Never change fixture data during migrations.
+    script = '''import json,os
+from pathlib import Path
+p=Path(os.environ['AGENT_STATE_DIR'])/'upgrades/paperless-checkpoint.json'
+print(p.read_text() if p.exists() else '{}')
+'''
+    deadline = time.monotonic() + 600
+    while time.monotonic() < deadline:
+        checkpoint = json.loads(run('runagent', '-m', module, 'python3', '-c', script).stdout)
+        if (checkpoint.get('healthy') and checkpoint.get('application_version') == version
+                and checkpoint.get('migration_fingerprint') == fingerprint(module)):
+            print(f'Healthy Paperless {version} checkpoint verified', flush=True)
+            return
+        time.sleep(3)
+    raise RuntimeError(f'Paperless {version} did not record a healthy checkpoint')
+
+
 def main():
     module, candidate = sys.argv[1:]
     original = fingerprint(module)
@@ -47,6 +67,7 @@ def main():
         'host': 'paperless.example.org', 'http2https': False, 'lets_encrypt': False}))
     assert fingerprint(module) == original, 'A rejected jump changed the database migrations'
     update(module, 'ghcr.io/compgeniuses/paperlessngx:1.4.0')
+    wait_checkpoint(module, '2.20.15')
     def http(path,payload):
         request=Request('http://127.0.0.1'+path,data=json.dumps(payload).encode(),headers={'Host':'paperless.example.org','Content-Type':'application/json',**http_auth})
         with urlopen(request,timeout=60) as response:return json.load(response)
