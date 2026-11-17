@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Guard migrations before restart and before the container entrypoint runs."""
+import fcntl
+import http.client
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import time
+from urllib.parse import urlsplit
+
+import agent
+
+MODULE_STAGE = '1.4'
+APP_VERSION = '2.20.15'
+MINIMUM_MODULE = (1, 3, 2)
+STATE = Path(os.environ.get('AGENT_STATE_DIR', '.'))
+
+
+def module_version(reference):
+    match = re.fullmatch(r'.+:(\d+)\.(\d+)\.(\d+)', reference or '')
+    return tuple(map(int, match.groups())) if match else None
+
+
+def read_json(name):
+    path = STATE / 'upgrades' / name
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def write_json(name, value):
+    path = STATE / 'upgrades' / name
+    path.parent.mkdir(mode=0o700, exist_ok=True)
+    temporary = path.with_name(path.name + f'.{os.getpid()}.tmp')
+    with temporary.open('w') as stream:
+        json.dump(value, stream, sort_keys=True)
+        stream.write('\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
+def run(*command, timeout=300):
+    result = subprocess.run(command, text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, timeout=timeout)
+    if result.returncode:
+        # Environment files and subprocess arguments can contain secrets.
+        raise RuntimeError(f'{command[0]} failed during the upgrade safety check')
+    return result.stdout.strip()
+
+
+def sql(statement):
+    db = agent.read_envfile(str(STATE / 'database.env'))
+    return run('podman', 'exec', 'paperless-pgsql', 'psql', '-XAt',
+               '-U', db['POSTGRES_USER'], '-d', db['POSTGRES_DATABASE'],
+               '-v', 'ON_ERROR_STOP=1', '-c', statement)
+
+
+def wait_database():
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            if sql('SELECT 1') == '1':
+                return
+        except (RuntimeError, subprocess.TimeoutExpired):
+            pass
+        if time.monotonic() >= deadline:
+            raise RuntimeError('PostgreSQL is not ready; no application migration was started')
+        time.sleep(2)
+
+
+def valid_source(reference):
+    version = module_version(reference)
+    return (bool(reference) and reference.rsplit(':', 1)[0] == 'ghcr.io/compgeniuses/paperlessngx'
+            and version is not None and version[0] == 1 and version >= MINIMUM_MODULE)
+
+
+def migration_fingerprint():
+    return sql("SELECT md5(string_agg(app || '.' || name, ',' ORDER BY app, name)) FROM django_migrations")
+
+
+def file_hash(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def atomic_copy(source, target):
+    temporary = target.with_name(target.name + f'.{os.getpid()}.tmp')
+    try:
+        shutil.copy2(source, temporary)
+        temporary.chmod(0o600)
+        with temporary.open('rb') as stream:
+            os.fsync(stream.fileno())
+        temporary.replace(target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def preflight(prepare=False):
+    checkpoint = read_json('paperless-checkpoint.json')
+    if (checkpoint.get('module_stage') == MODULE_STAGE
+            and checkpoint.get('application_version') == APP_VERSION
+            and checkpoint.get('healthy') is True):
+        wait_database()
+        if checkpoint.get('migration_fingerprint') != migration_fingerprint():
+            raise RuntimeError('Upgrade blocked: the database no longer matches its recorded checkpoint')
+        return 'checkpoint'
+    transition = read_json('paperless-transition.json')
+    if (transition.get('target_application') == APP_VERSION
+            and valid_source(transition.get('source_image'))
+            and transition.get('backup_complete') is True):
+        backup = STATE / 'upgrades/1.4.0/paperless.pg_dump'
+        if not backup.is_file() or file_hash(backup) != transition.get('backup_sha256'):
+            raise RuntimeError('Upgrade blocked: the original database backup is missing or changed')
+        return 'transition'
+    fresh = read_json('paperless-fresh.json')
+    if fresh.get('application_version') == APP_VERSION:
+        wait_database()
+        if fresh.get('startup_authorized') is True:
+            return 'fresh'
+        if sql("SELECT count(*) FROM pg_tables WHERE schemaname='public'") == '0':
+            write_json('paperless-fresh.json', {'application_version': APP_VERSION, 'startup_authorized': True})
+            return 'fresh'
+    if prepare and valid_source(os.environ.get('PREV_IMAGE_URL')):
+        return 'source'
+    raise RuntimeError('Upgrade blocked: install stable module 1.3.2 first; '
+                       'a successful checkpoint/backup is required before Paperless 2.20.15 starts')
+
+
+def recover_freeze():
+    frozen = read_json('paperless-freeze.json')
+    if frozen.get('target_application') != APP_VERSION:
+        return
+    try:
+        paused = run('podman', 'inspect', '--format', '{{.State.Paused}}', 'paperless-server') == 'true'
+    except RuntimeError:
+        paused = False
+    if paused:
+        run('podman', 'unpause', 'paperless-server')
+    write_json('paperless-freeze.json', {})
+
+
+def prepare_update():
+    recover_freeze()
+    origin = preflight(prepare=True)
+    if origin in ('checkpoint', 'transition', 'fresh'):
+        return
+    wait_database()
+    directory = STATE / 'upgrades' / '1.4.0'
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.chmod(0o700)
+    paused = False
+    try:
+        try:
+            running = run('podman', 'inspect', '--format', '{{.State.Running}}', 'paperless-server') == 'true'
+        except RuntimeError:
+            running = False
+        already_paused = running and run('podman', 'inspect', '--format', '{{.State.Paused}}', 'paperless-server') == 'true'
+        if running and not already_paused:
+            write_json('paperless-freeze.json', {'target_application': APP_VERSION})
+            run('podman', 'pause', 'paperless-server')
+            paused = True
+        run('module-dump-state', timeout=3600)
+        dump = STATE / 'paperless.pg_dump'
+        if not dump.is_file() or dump.stat().st_size == 0:
+            raise RuntimeError('Upgrade blocked: the pre-migration database dump is empty')
+        backup = directory / 'paperless.pg_dump'
+        if not backup.exists():
+            atomic_copy(dump, backup)
+        # Paperless 2.17 changes created from timestamp to date. Preserve the
+        # exact original timestamps separately before the upstream migration.
+        dates = directory / 'original-created-timestamps.jsonl'
+        if not dates.exists():
+            data = sql("SELECT json_build_object('id', id, 'created', created)::text FROM documents_document ORDER BY id")
+            temporary = dates.with_suffix('.tmp')
+            temporary.write_text(data + ('\n' if data else ''))
+            temporary.chmod(0o600)
+            temporary.replace(dates)
+        for name in ['environment', 'database.env', 'paperless-db.env',
+                     'secret_key.env', 'paperless-ngx.env']:
+            source = STATE / name
+            target = directory / name
+            if source.is_file() and not target.exists():
+                atomic_copy(source, target)
+        write_json('paperless-transition.json', {
+            'target_application': APP_VERSION,
+            'source_image': os.environ['PREV_IMAGE_URL'],
+            'backup_complete': True,
+            'backup_directory': 'upgrades/1.4.0',
+            'backup_sha256': file_hash(backup),
+        })
+    finally:
+        if paused:
+            run('podman', 'unpause', 'paperless-server')
+            write_json('paperless-freeze.json', {})
+
+
+def mark_ready():
+    preflight()
+    options = agent.read_envfile(str(STATE / 'paperless-ngx.env'))
+    host = urlsplit(options['PAPERLESS_URL']).hostname
+    port = int(os.environ['TCP_PORT'])
+    deadline = time.monotonic() + int(os.environ.get('PAPERLESS_UPGRADE_HEALTH_TIMEOUT', '1800'))
+    while True:
+        try:
+            actual = run('podman', 'exec', 'paperless-server', 'python3', '-c',
+                         'from paperless.version import __full_version_str__; print(__full_version_str__)')
+            if actual != APP_VERSION:
+                raise RuntimeError('The running application does not match the checkpoint version')
+            connection = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
+            connection.request('GET', '/', headers={'Host': host})
+            response = connection.getresponse()
+            response.read()
+            connection.close()
+            if response.status in (200, 301, 302):
+                break
+        except (RuntimeError, OSError, http.client.HTTPException, subprocess.TimeoutExpired):
+            pass
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Application health did not pass; the upgrade checkpoint was not recorded')
+        time.sleep(3)
+    write_json('paperless-checkpoint.json', {
+        'module_stage': MODULE_STAGE, 'application_version': APP_VERSION,
+        'healthy': True, 'module_image': os.environ.get('IMAGE_URL', ''),
+        'module_uuid': os.environ.get('MODULE_UUID', ''),
+        'migration_fingerprint': migration_fingerprint(),
+    })
+    print(f'Paperless {APP_VERSION}: healthy module {MODULE_STAGE} checkpoint recorded')
+
+
+def main():
+    os.umask(0o077)
+    operation = sys.argv[1]
+    with (STATE / '.paperless-upgrade.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if operation == 'init':
+            if not (STATE / 'upgrades/paperless-fresh.json').exists():
+                write_json('paperless-fresh.json', {'application_version': APP_VERSION})
+        elif operation == 'check':
+            preflight()
+        elif operation == 'prepare':
+            prepare_update()
+        elif operation == 'ready':
+            mark_ready()
+        else:
+            raise ValueError(operation)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(2)
