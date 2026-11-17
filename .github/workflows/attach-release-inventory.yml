@@ -1,0 +1,66 @@
+name: Attach release inventory
+on:
+  push:
+    branches: [paperless-release-assets]
+    paths: ['.release/**', '.github/workflows/attach-release-inventory.yml']
+permissions:
+  contents: write
+  statuses: write
+concurrency:
+  group: paperless-release-inventory
+  cancel-in-progress: false
+jobs:
+  attach:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate release target and unpack inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,hashlib,io,json,os,re,subprocess,tarfile
+          from pathlib import Path
+          request=json.loads(Path('.release/request.json').read_text())
+          tag=request['tag']; revision=request['revision']
+          assert re.fullmatch(r'(1\.3\.2|1\.4\.0|2\.0\.0)',tag)
+          assert re.fullmatch(r'[0-9a-f]{40}',revision)
+          actual=subprocess.check_output(['gh','api','repos/'+os.environ['GITHUB_REPOSITORY']+'/git/ref/tags/'+tag,'--jq','.object.sha'],text=True).strip()
+          assert actual==revision,(actual,revision)
+          root=Path(os.environ['RUNNER_TEMP'])/'release-assets'; root.mkdir(exist_ok=True)
+          raw=base64.b64decode(Path('.release/assets.tar.gz.b64').read_text())
+          with tarfile.open(fileobj=io.BytesIO(raw),mode='r:gz') as archive:
+              for member in archive.getmembers():
+                  assert member.isfile() and Path(member.name).name==member.name
+                  assert member.size<=5_000_000
+                  (root/member.name).write_bytes(archive.extractfile(member).read())
+          for line in (root/'SHA256SUMS').read_text().splitlines():
+              digest,name=line.split(None,1); name=name.strip()
+              assert Path(name).name==name
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest,name
+          bom=json.loads((root/f'paperlessngx-{tag}.cdx.json').read_text())
+          properties={p['name']:p['value'] for p in bom['metadata']['component']['properties']}
+          assert properties['source.revision']==revision
+          assert bom['metadata']['component']['version']==tag
+          with open(os.environ['GITHUB_ENV'],'a') as env:
+              env.write('RELEASE_TAG='+tag+'\n')
+          print('Verified inventory checksums and immutable release source for '+tag)
+          PY
+      - name: Attach inventory and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease
+          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url,assets
+      - name: Report attachment result
+        if: always()
+        env:
+          JOB_RESULT: ${{ job.status }}
+        shell: bash
+        run: |
+          state=success
+          if [ "$JOB_RESULT" != success ]; then state=failure; fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$state" -f context=release-inventory -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
