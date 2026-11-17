@@ -43,6 +43,8 @@ class UpgradeCheckpoints(unittest.TestCase):
             calls.append(command)
             if command[0] == 'module-dump-state':
                 raise RuntimeError('dump failed')
+            if '{{.State.Paused}}' in command:
+                return 'false'
             return 'true'
         with patch.dict(os.environ, PREV_IMAGE_URL='ghcr.io/compgeniuses/paperlessngx:1.3.2'), \
                 patch.object(self.module, 'wait_database'), patch.object(self.module, 'run', run):
@@ -103,3 +105,14 @@ class UpgradeCheckpoints(unittest.TestCase):
                 self.module.atomic_copy(source, target)
         self.assertFalse(target.exists())
         self.assertFalse(list(self.state.glob('checkpoint.dump.*.tmp')))
+
+    def test_interrupted_preparation_recovers_its_own_paused_application(self):
+        self.module.write_json('paperless-freeze.json', {'target_application': self.module.APP_VERSION})
+        calls = []
+        def run(*command, **kwargs):
+            calls.append(command)
+            return 'true'
+        with patch.object(self.module, 'run', run):
+            self.module.recover_freeze()
+        self.assertIn(('podman', 'unpause', 'paperless-server'), calls)
+        self.assertEqual(self.module.read_json('paperless-freeze.json'), {})

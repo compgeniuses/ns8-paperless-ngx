@@ -135,7 +135,21 @@ def preflight(prepare=False):
                        'a successful checkpoint/backup is required before Paperless 2.20.15 starts')
 
 
+def recover_freeze():
+    frozen = read_json('paperless-freeze.json')
+    if frozen.get('target_application') != APP_VERSION:
+        return
+    try:
+        paused = run('podman', 'inspect', '--format', '{{.State.Paused}}', 'paperless-server') == 'true'
+    except RuntimeError:
+        paused = False
+    if paused:
+        run('podman', 'unpause', 'paperless-server')
+    write_json('paperless-freeze.json', {})
+
+
 def prepare_update():
+    recover_freeze()
     origin = preflight(prepare=True)
     if origin in ('checkpoint', 'transition', 'fresh'):
         return
@@ -149,7 +163,9 @@ def prepare_update():
             running = run('podman', 'inspect', '--format', '{{.State.Running}}', 'paperless-server') == 'true'
         except RuntimeError:
             running = False
-        if running:
+        already_paused = running and run('podman', 'inspect', '--format', '{{.State.Paused}}', 'paperless-server') == 'true'
+        if running and not already_paused:
+            write_json('paperless-freeze.json', {'target_application': APP_VERSION})
             run('podman', 'pause', 'paperless-server')
             paused = True
         run('module-dump-state', timeout=3600)
@@ -184,6 +200,7 @@ def prepare_update():
     finally:
         if paused:
             run('podman', 'unpause', 'paperless-server')
+            write_json('paperless-freeze.json', {})
 
 
 def mark_ready():
