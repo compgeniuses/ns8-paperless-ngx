@@ -17,9 +17,11 @@ EnvironmentFile=%S/state/environment
 EnvironmentFile=%S/state/database.env
 WorkingDirectory=%S/state
 Restart=always
+TimeoutStartSec=3600
 ExecStartPre=/bin/rm -f %t/ns8-paperless-ngx.pid %t/ns8-paperless-ngx.ctr-id
 ExecStartPre=/usr/local/bin/runagent discover-smarthost
 ExecStartPre=/usr/local/bin/runagent discover-database
+ExecStartPre=/usr/local/bin/runagent paperless-upgrade check
 ExecStart=/usr/bin/podman run \
     --detach \
     --conmon-pidfile=%t/ns8-paperless-ngx.pid \
@@ -36,6 +38,7 @@ ExecStart=/usr/bin/podman run \
     --volume=paperlessngx-export:/usr/src/paperless/export \
     --volume=paperlessngx-consume:/usr/src/paperless/consume \
     ${PAPERLESS_NGX_IMAGE}
+ExecStartPost=/usr/local/bin/runagent paperless-upgrade ready
 ExecStop=/usr/bin/podman stop --ignore --cidfile %t/ns8-paperless-ngx.ctr-id -t 10
 ExecStopPost=/usr/bin/podman rm --ignore -f --cidfile %t/ns8-paperless-ngx.ctr-id
 PIDFile=%t/ns8-paperless-ngx.pid

@@ -1,4 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 exec 1>&2
+# NS8 continues after a failed update hook. Keep preparation and restart in the
+# same checked path, and repeat the guard in the container's ExecStartPre.
+paperless-upgrade prepare
 systemctl --user try-restart paperless.service paperless-pgsql.service paperless-redis.service paperless-gotenberg.service paperless-tika.service paperless-server.service

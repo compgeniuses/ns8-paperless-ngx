@@ -45,15 +45,20 @@ Ingest PDF Office and email documents and record original secrets
     Should Be Equal As Integers    ${rc}    0
     Set Suite Variable    ${original_secrets}    ${checksums}
 
-Upgrade the production baseline
+Reject a skipped compatibility checkpoint
     Skip If    '${SCENARIO}' != 'update'    Fresh install scenario
-    ${rc} =    Execute Command    api-cli run update-module --data '{"force":true,"module_url":"ghcr.io/compgeniuses/paperlessngx:1.3.2-testing.1","instances":["${module_id}"]}'
-    ...    return_rc=True    return_stdout=False
-    Should Be Equal As Integers    ${rc}    0
+    Put File    ${CURDIR}/upgrade_guard_probe.py    /tmp/paperless-guard-${module_id}.py
+    ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-guard-${module_id}.py ${module_id} ${IMAGE_URL} 2>&1
+    ...    return_rc=True
+    Should Be Equal As Integers    ${rc}    0    ${output}
+    Log    ${output}
     Wait Until Keyword Succeeds    5 minutes    10 seconds    Paperless responds through Traefik
     ${output}    ${rc} =    Execute Command    python3 /tmp/paperless-probe-${module_id}.py verify /tmp/paperless-proof-${module_id}.json 2>&1
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}    0    ${output}
+
+Upgrade the production baseline
+    Skip If    '${SCENARIO}' != 'update'    Fresh install scenario
     ${rc} =    Execute Command    api-cli run update-module --data '{"force":true,"module_url":"${IMAGE_URL}","instances":["${module_id}"]}'
     ...    return_rc=True    return_stdout=False
     Should Be Equal As Integers    ${rc}    0

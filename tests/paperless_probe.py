@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Disposable QEMU-only document ingestion and preservation checks."""
 import hashlib
+import datetime
 import http.client
 import io
 import json
@@ -101,8 +102,52 @@ def inspect_document(document, kind, stage, auth):
             raise RuntimeError(f'{kind}: missing from full-text search')
         time.sleep(3)
     snapshot = {key: document[key] for key in ['id', 'title', 'content', 'created', 'original_file_name']}
+    snapshot.update(correspondent=document.get('correspondent'),
+                    document_type=document.get('document_type'),
+                    tags=sorted(document.get('tags', [])),
+                    custom_fields=sorted(({'field': value['field'], 'value': value['value']}
+                                          for value in document.get('custom_fields', [])),
+                                         key=lambda value: value['field']))
+    notes = json.loads(request('GET', f"/api/documents/{document['id']}/notes/", headers=auth))
+    snapshot['notes'] = sorted(note['note'] for note in notes)
     snapshot.update(kind=kind, stage=stage, sha256=hashlib.sha256(original).hexdigest(), archive_sha256=hashlib.sha256(archive).hexdigest())
     return snapshot
+
+
+def seed_metadata(document, auth):
+    def create(endpoint, payload):
+        return json.loads(request('POST', '/api/' + endpoint + '/', json.dumps(payload),
+                                  {**auth, 'Content-Type': 'application/json'}))
+    tag = create('tags', {'name': 'NS8 preservation tag', 'color': '#00aaff'})
+    correspondent = create('correspondents', {'name': 'NS8 preservation correspondent'})
+    document_type = create('document_types', {'name': 'NS8 preservation document type'})
+    custom = create('custom_fields', {'name': 'NS8 preservation field', 'data_type': 'string'})
+    view = create('saved_views', {'name': 'NS8 preservation saved view',
+                  'show_on_dashboard': True, 'show_in_sidebar': True,
+                  'filter_rules': [{'rule_type': 20, 'value': 'note:preservation'}]})
+    payload = {'tags': [tag['id']], 'correspondent': correspondent['id'],
+               'document_type': document_type['id'],
+               'custom_fields': [{'field': custom['id'], 'value': 'NS8 custom value proof'}]}
+    document = json.loads(request('PATCH', f"/api/documents/{document['id']}/", json.dumps(payload),
+                                  {**auth, 'Content-Type': 'application/json'}))
+    request('POST', f"/api/documents/{document['id']}/notes/", json.dumps({'note': 'NS8 note preservation proof'}),
+            {**auth, 'Content-Type': 'application/json'})
+    resources = [{'endpoint': endpoint, 'id': value['id'], 'name': value['name']}
+                 for endpoint, value in [('tags', tag), ('correspondents', correspondent),
+                                          ('document_types', document_type), ('custom_fields', custom)]]
+    return document, {'resources': resources, 'saved_view': {'id': view['id'], 'name': view['name']}}
+
+
+def verify_metadata(snapshot, auth):
+    for resource in snapshot['resources']:
+        actual = json.loads(request('GET', f"/api/{resource['endpoint']}/{resource['id']}/", headers=auth))
+        assert actual['name'] == resource['name'], resource
+    view = json.loads(request('GET', f"/api/saved_views/{snapshot['saved_view']['id']}/", headers=auth))
+    assert view['name'] == snapshot['saved_view']['name']
+    assert view['show_on_dashboard'] is True and view['show_in_sidebar'] is True
+    assert len(view['filter_rules']) == 1 and view['filter_rules'][0]['rule_type'] == 20
+    # v3's explicit note-field rewrite is an upstream data migration.
+    assert view['filter_rules'][0]['value'] in ('note:preservation', 'notes.note:preservation')
 
 
 def main():
@@ -115,6 +160,7 @@ def main():
         stage = 'before' if operation == 'create' else 'after'
         kinds = ['pdf', 'docx', 'eml'] if stage == 'before' else ['docx', 'eml']
         snapshots = []
+        metadata = None
         for kind in kinds:
             title, mime, payload = fixture(kind, stage)
             boundary = 'NS8PaperlessTestBoundary'
@@ -123,14 +169,26 @@ def main():
                     f'Content-Type: {mime}\r\n\r\n').encode() + payload + f'\r\n--{boundary}--\r\n'.encode()
             request('POST', '/api/documents/post_document/', body,
                     {**auth, 'Content-Type': f'multipart/form-data; boundary={boundary}'})
-            snapshots.append(inspect_document(wait_document(title, auth), kind, stage, auth))
+            document = wait_document(title, auth)
+            if kind == 'pdf' and stage == 'before':
+                document, metadata = seed_metadata(document, auth)
+            snapshots.append(inspect_document(document, kind, stage, auth))
         os.umask(0o077)
         Path(snapshot_path).write_text(json.dumps(snapshots))
+        if metadata:
+            Path(snapshot_path + '.metadata.json').write_text(json.dumps(metadata))
     elif operation == 'verify':
         for previous in json.loads(Path(snapshot_path).read_text()):
             document = json.loads(request('GET', f"/api/documents/{previous['id']}/", headers=auth))
             actual = inspect_document(document, previous['kind'], previous['stage'], auth)
+            # Upstream 2.17 intentionally changes created timestamps to dates.
+            # Fixtures use UTC; the module separately archives exact timestamps.
+            if len(actual['created']) == 10 and len(previous['created']) > 10:
+                previous['created'] = datetime.datetime.fromisoformat(previous['created'].replace('Z', '+00:00')).astimezone(datetime.timezone.utc).date().isoformat()
             assert actual == previous, f"{previous['kind']}: document metadata, text or archive changed"
+        metadata_path = Path(snapshot_path + '.metadata.json')
+        if metadata_path.exists():
+            verify_metadata(json.loads(metadata_path.read_text()), auth)
     else:
         raise ValueError('Expected create, create-after or verify')
     print('PDF/Office/email ingestion, original/archive bytes, metadata, login and search verified')
